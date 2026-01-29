@@ -13,18 +13,24 @@ from requests.auth import HTTPBasicAuth
 # ✅ Config (ENV 우선)
 # =========================
 ES_BASE_URL = os.getenv("ES_BASE_URL", "https://localhost:9200")   # ES 8.x는 보통 https + self-signed
-ES_INDEX    = os.getenv("ES_INDEX", "pmc_search_v1")
+ES_INDEX    = os.getenv("ES_INDEX", "d_crawler_search")
 ES_USER     = os.getenv("ES_USER", "elastic")
 ES_PASS     = os.getenv("ES_PASS", "changeme")
 ES_VERIFY_SSL = os.getenv("ES_VERIFY_SSL", "false").lower() in ("1", "true", "yes")  # 실습: self-signed면 false
 DEFAULT_SIZE = int(os.getenv("ES_PAGE_SIZE", "10"))
 
+FIELD_TO_ES = {
+    "title":    ["title^3", "title.partial^2"],
+    "filename": ["filename^2", "filename.partial^2"],
+    "author":   ["author", "author.partial"],
+    "keywords": ["keywords", "keywords.partial"],
+    "path":     ["path_tree^4"],   # 경로는 path_tree로 통일
+}
+
 SEARCH_FIELD_OPTIONS = [
     ("title", "제목"),
     ("filename", "파일명"),
-    ("body", "본문"),
-    ("path_real", "경로(실제)"),
-    ("path_virtual", "경로(가상)"),
+    ("path", "경로(하위 포함)"),   # path_real/path_virtual 대신 path_tree 대표
     ("author", "작성자"),
     ("keywords", "키워드"),
 ]
@@ -39,50 +45,64 @@ def build_dsl(
     extension: Optional[str],
     created_from: Optional[date],
     created_to: Optional[date],
-    modified_from: Optional[date],   # ✅ 추가
+    modified_from: Optional[date],
     modified_to: Optional[date],
+    selected_fields: Optional[List[str]] = None,  # ✅ 추가
 ) -> Dict[str, Any]:
-    """
-    Streamlit 단일앱에서 '자연어 입력 문자열(q)'을 ES Query DSL로 변환하는 최소 템플릿.
-    - multi_match: title^3, filename^2, body, path_virtual, path_real
-    - filter: extension.keyword, created_at range (옵션)
-    - highlight: title(전체), body(fragment)
-    """
+
     page = max(1, page)
-    size = min(max(1, size), 50)  # 과도한 응답 방지(실습용 상한)
+    size = min(max(1, size), 50)
     from_ = (page - 1) * size
+
+    # ✅ 선택 필드가 없으면 기본값
+    if not selected_fields:
+        selected_fields = ["title", "filename", "path"]
+
+    # ✅ 선택된 UI 필드 -> ES fields
+    fields: List[str] = []
+    for k in selected_fields:
+        fields.extend(FIELD_TO_ES.get(k, []))
+    # 안전장치: 비어있으면 기본
+    if not fields:
+        fields = ["title^3", "filename^2", "path_tree^4"]
+
+    # ✅ 정확 일치 보너스(should)
+    should = [
+        {"term": {"title.keyword": {"value": q, "boost": 8}}},
+        {"term": {"filename.keyword": {"value": q, "boost": 6}}},
+    ]
 
     must = [{
         "multi_match": {
             "query": q,
-            "fields": ["title^3", "filename^2", "body", "path_virtual", "path_real"],
+            "fields": fields,
             "type": "best_fields",
-            "operator": "and"
+            "operator": "or",
+            "minimum_should_match": "2<75%"
         }
     }]
 
     filters: List[Dict[str, Any]] = []
+
+    # ✅ extension은 보통 keyword 단일 필드
     if extension:
-        # mapping에 extension.keyword가 존재하므로 keyword로 term 필터 권장
-        filters.append({"term": {"extension.keyword": extension.lower()}})
+        filters.append({"term": {"extension": extension.lower()}})
 
     if created_from or created_to:
         rng: Dict[str, Any] = {}
-        if created_from:
-            rng["gte"] = created_from.isoformat()
-        if created_to:
-            rng["lte"] = created_to.isoformat()
+        if created_from: rng["gte"] = created_from.isoformat()
+        if created_to:   rng["lte"] = created_to.isoformat()
         filters.append({"range": {"created_at": rng}})
-    
+
     if modified_from or modified_to:
         rng: Dict[str, Any] = {}
-        if modified_from:
-            rng["gte"] = modified_from.isoformat()
-        if modified_to:
-            rng["lte"] = modified_to.isoformat()
+        if modified_from: rng["gte"] = modified_from.isoformat()
+        if modified_to:   rng["lte"] = modified_to.isoformat()
         filters.append({"range": {"modified_at": rng}})
 
-    query: Dict[str, Any] = {"bool": {"must": must, "filter": filters}} if filters else {"bool": {"must": must}}
+    bool_q: Dict[str, Any] = {"must": must, "should": should, "minimum_should_match": 0}
+    if filters:
+        bool_q["filter"] = filters
 
     dsl: Dict[str, Any] = {
         "track_total_hits": True,
@@ -90,24 +110,28 @@ def build_dsl(
         "size": size,
         "_source": [
             "title", "filename", "path_virtual", "path_real",
-            "extension", "created_at", "modified_at", "filesize_bytes", "content_type", "source_index"
+            "extension", "created_at", "modified_at",
+            "filesize_bytes", "content_type", "source_index"
         ],
-        "query": query,
+        "query": {"bool": bool_q},
         "highlight": {
             "pre_tags": ["<mark>"],
             "post_tags": ["</mark>"],
             "require_field_match": False,
             "fields": {
                 "title": {"number_of_fragments": 0},
-                "body": {"fragment_size": 180, "number_of_fragments": 2}
+                "filename": {"number_of_fragments": 0}
             }
         }
     }
 
     if sort == "RECENCY":
         dsl["sort"] = [{"modified_at": {"order": "desc"}}]
+    else:
+        dsl["sort"] = [{"_score": {"order": "desc"}}]
 
     return dsl
+
 
 
 
@@ -350,7 +374,7 @@ if not prev:
     prev = ["title", "filename"] # 선택된게 아무것도 없다면 Default로 2개를 띄움
 
 selected_fields = st.multiselect(
-    "검색 대상 필드 (현재는 아무런 기능을 하지 않음 -> 추후 가중치 추가 대상 옵션으로 생각중)",
+    "검색 대상 필드",
     options=keys,
     default=prev,
     format_func=lambda k: label_by_key.get(k, k),
@@ -381,16 +405,17 @@ if colB.button("초기화", use_container_width=True):
 # ✅ 검색 실행: should_search가 True면 실행
 if st.session_state.get("should_search", False):
     dsl = build_dsl(
-        q=st.session_state.query_text.strip(),
-        page=int(st.session_state.page),
-        size=int(st.session_state.size),
-        sort=sort,
-        extension=extension,
-        created_from=created_from,
-        created_to=created_to,
-        modified_from=modified_from,
-        modified_to=modified_to,
-    )
+    q=st.session_state.query_text.strip(),
+    page=int(st.session_state.page),
+    size=int(st.session_state.size),
+    sort=sort,
+    extension=extension,
+    created_from=created_from,
+    created_to=created_to,
+    modified_from=modified_from,
+    modified_to=modified_to,
+    selected_fields=st.session_state.get(ms_key, ["title", "filename", "path"]),
+)
 
     with st.expander("전송 DSL 보기", expanded=False):
         st.code(json.dumps(dsl, ensure_ascii=False, indent=2), language="json")
@@ -420,14 +445,15 @@ if st.session_state.get("should_search", False):
                     meta[1].markdown(f"**path_virtual**: `{h.path_virtual}`")
                     meta[1].markdown(f"**path_real**: `{h.path_real}`")
 
-                    snippets: List[str] = []
-                    if "body" in h.highlights:
-                        snippets = h.highlights["body"]
-                    elif "title" in h.highlights:
-                        snippets = h.highlights["title"]
+                    snippets: List[str] = (
+                        h.highlights.get("title")
+                        or h.highlights.get("filename")
+                        or h.highlights.get("body")   # 혹시 나중에 본문 인덱스 붙일 수도 있으니 fallback
+                        or []
+                    )
 
                     if snippets:
-                        st.markdown("**본문 스니펫(하이라이트)**")
+                        st.markdown("**하이라이트**")
                         for s in snippets:
                             st.markdown(f"- {s}", unsafe_allow_html=True)
                     else:
@@ -458,9 +484,3 @@ if st.session_state.get("should_search", False):
     except Exception as e:
         st.error("알 수 없는 오류")
         st.code(str(e))
-
-st.divider()
-st.caption(
-    "운영으로 갈 땐 ES 계정을 Streamlit에 박아두기보다, "
-    "별도 인증/권한 레이어(게이트웨이)를 두는 게 안전해."
-)
