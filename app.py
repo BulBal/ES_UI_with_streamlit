@@ -15,10 +15,19 @@ from requests.auth import HTTPBasicAuth
 ES_BASE_URL = os.getenv("ES_BASE_URL", "https://localhost:9200")   # ES 8.x는 보통 https + self-signed
 ES_INDEX    = os.getenv("ES_INDEX", "pmc_search_v1")
 ES_USER     = os.getenv("ES_USER", "elastic")
-ES_PASS     = os.getenv("ES_PASS", "D69sYJN57Y0PlcplIGaQ")
+ES_PASS     = os.getenv("ES_PASS", "changeme")
 ES_VERIFY_SSL = os.getenv("ES_VERIFY_SSL", "false").lower() in ("1", "true", "yes")  # 실습: self-signed면 false
 DEFAULT_SIZE = int(os.getenv("ES_PAGE_SIZE", "10"))
 
+SEARCH_FIELD_OPTIONS = [
+    ("title", "제목"),
+    ("filename", "파일명"),
+    ("body", "본문"),
+    ("path_real", "경로(실제)"),
+    ("path_virtual", "경로(가상)"),
+    ("author", "작성자"),
+    ("keywords", "키워드"),
+]
 # =========================
 # ✅ Query Builder (DSL 템플릿)
 # =========================
@@ -96,7 +105,7 @@ def build_dsl(
     }
 
     if sort == "RECENCY":
-        dsl["sort"] = [{"created_at": {"order": "desc"}}]
+        dsl["sort"] = [{"modified_at": {"order": "desc"}}]
 
     return dsl
 
@@ -304,6 +313,8 @@ with st.sidebar:
     st.divider()
     st.subheader("필터 (옵션)")
     extension = st.text_input("확장자(extension)", placeholder="예: pdf / docx / pptx ...").strip() or None
+
+    st.subheader("생성일 필터 (옵션)")
     c1, c2 = st.columns(2)
     created_from = c1.date_input("created_from", value=None)
     created_to = c2.date_input("created_to", value=None)
@@ -313,7 +324,6 @@ with st.sidebar:
         created_from = None
         created_to = None
     
-    st.divider()
     st.subheader("수정일 필터 (옵션)")
 
     m1, m2 = st.columns(2)
@@ -328,6 +338,24 @@ with st.sidebar:
 # =========================
 # ✅ Search Mode Selector (자연어 only)
 # =========================
+label_by_key = dict(SEARCH_FIELD_OPTIONS)
+keys = list(label_by_key.keys())
+
+# ✅ 위젯 key 고정 + session_state 정합성 보정
+# UI 위젯에서 field들의 상태들을 저장 할 ID(이름)을 지정 -> ms_key
+ms_key = "ui_selected_fields"
+prev = st.session_state.get(ms_key, ["title", "filename", "body"]) # ms_key에 Default 값을 입력
+prev = [x for x in prev if x in keys] #options 안에 존재하는 값들만 있게끔 강제하는 과정
+if not prev:
+    prev = ["title", "filename"] # 선택된게 아무것도 없다면 Default로 2개를 띄움
+
+selected_fields = st.multiselect(
+    "검색 대상 필드 (현재는 아무런 기능을 하지 않음 -> 추후 가중치 추가 대상 옵션으로 생각중)",
+    options=keys,
+    default=prev,
+    format_func=lambda k: label_by_key.get(k, k),
+    key=ms_key
+)
 
 query = st.text_input(
     "검색어(자연어) 입력",
