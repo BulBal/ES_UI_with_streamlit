@@ -29,5 +29,5 @@ def load_config() -> AppConfig:
         es_user=os.getenv("ES_USER", "elastic"),
         es_pass=os.getenv("ES_PASS", "changeme"),
         es_verify_ssl=_bool(os.getenv("ES_VERIFY_SSL"), default=False),
-        default_size=_int(os.getenv("ES_PAGE_SIZE"), default=10),
+        default_size=_int(os.getenv("ES_PAGE_SIZE"), default=30),
     )
