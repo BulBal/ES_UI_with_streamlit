@@ -1,0 +1,128 @@
+"PUT _index_template/smart_solution_raw_index_v1"
+{
+  "index_patterns": [
+    "smart-solution-index-*"
+  ],
+  "priority": 300,
+  "template": {
+    "settings": {
+      "analysis": {
+        "analyzer": {
+          "filename_ngram_index": {
+            "type": "custom",
+            "tokenizer": "filename_edge_ngram",
+            "filter": [
+              "lowercase"
+            ]
+          },
+          "filename_ngram_search": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": [
+              "lowercase"
+            ]
+          },
+          "filename_nori": {
+            "type": "custom",
+            "tokenizer": "nori_tokenizer",
+            "filter": [
+              "lowercase"
+            ]
+          },
+          "filename_en": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": [
+              "lowercase",
+              "stop",
+              "porter_stem"
+            ]
+          },
+          "path_tree": {
+            "type": "custom",
+            "tokenizer": "path_hierarchy_slash",
+            "filter": [
+              "lowercase"
+            ]
+          },
+          "content_nori": {
+            "type": "custom",
+            "tokenizer": "nori_tokenizer",
+            "filter": [
+              "lowercase"
+            ]
+          }
+        },
+        "tokenizer": {
+          "filename_edge_ngram": {
+            "type": "edge_ngram",
+            "min_gram": 2,
+            "max_gram": 20,
+            "token_chars": [
+              "letter",
+              "digit"
+            ]
+          },
+          "path_hierarchy_slash": {
+            "type": "path_hierarchy",
+            "delimiter": "/"
+          },
+          "nori_tokenizer": {
+            "type": "nori_tokenizer",
+            "decompound_mode": "mixed"
+          }
+        }
+      }
+    },
+    "mappings": {
+      "dynamic": true,
+      "properties": {
+        "content": {
+          "type": "text",
+          "analyzer": "content_nori"
+        },
+        "file": {
+          "properties": {
+            "filename": {
+              "type": "text",
+              "store": true,
+              "analyzer": "filename_nori",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 512
+                },
+                "en": {
+                  "type": "text",
+                  "analyzer": "filename_en"
+                }
+              }
+            }
+          }
+        },
+        "path": {
+          "properties": {
+            "real": {
+              "type": "keyword",
+              "fields": {
+                "tree": {
+                  "type": "text",
+                  "analyzer": "path_tree"
+                }
+              }
+            },
+            "virtual": {
+              "type": "keyword",
+              "fields": {
+                "tree": {
+                  "type": "text",
+                  "analyzer": "path_tree"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

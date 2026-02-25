@@ -1,0 +1,231 @@
+# optional: the name of the crawler. Defaults to the job directory name.
+#name: "smart-solution-raw"
+
+# optional: set file system crawler parameters
+fs:
+  # define a "local" file path crawler, if running inside a docker container this must be the path INSIDE the container
+    url: "\\\\10.10.10.23\\13_연구개발부_스마트솔루션팀_대외비"
+  # optional: scan every 15 minutes for changes in url defined above
+    update_rate: "24h"
+  # optional: define includes and excludes, "~" files are excluded by default if not defined below
+    includes:
+    # 이미지(3)
+    - "*.jpg"
+    - "*.jpeg"
+    - "*.png"
+    - "*.gif"
+    - "*.bmp"
+    - "*.tif"
+    - "*.tiff"
+    - "*.webp"
+    - "*.svg"
+    - "*.heic"
+    - "*.ai"
+    - "*.ico"
+    - "*.psd"
+
+    # 문서(4)
+    - "*.pdf"
+    - "*.txt"
+    - "*.md"
+    - "*.rtf"
+    - "*.doc"
+    - "*.docx"
+    - "*.ppt"
+    - "*.pptx"
+    - "*.xls"
+    - "*.xlsx"
+    - "*.xlsm"
+    - "*.csv"
+    - "*.hwp"
+    - "*.hwpx"
+
+    # 설정/구성(5)
+    - "*.conf"
+    - "*.ini"
+    - "*.properties"
+    - "*.policy"
+    - "*.manifest"
+    - "*.yml"
+    - "*.yaml"
+    - "*.json"
+    - "*.xml"
+    - "*.toml"
+    - "*.env"
+
+    # 압축/패키징(7)
+    - "*.zip"
+    - "*.7z"
+    - "*.rar"
+    - "*.tar"
+    - "*.gz"
+    - "*.tgz"
+    - "*.bz2"
+    - "*.xz"
+    - "*.iso"
+    - "*.cab"
+
+   
+    
+
+    # old 확장자 포함
+    - "*.old"
+
+  # ❌ 제외: 경로/폴더 및 특정 파일명
+    excludes:
+    # --- name deny (파일명) ---
+    - "~$*"                 # Office temp (prefix "~$")
+    - "Thumbs.db"           # Windows thumbnails
+    - "desktop.ini"         # Windows desktop config
+
+     # 특이사항 문서 제외
+    - "일정시이력현황.*"
+
+    # --- path deny (폴더/경로) ---
+    - "*/@eaDir/*"                  # Synology thumbnail dir
+    - "*/#recycle/*"                # Synology recycle bin
+    - "*/@Recycle/*" 
+    - "*/$Recycle.Bin/*"            # Windows recycle bin
+    - "*/System Volume Information/*" # Windows system folder
+    - "*/node_modules/*"            # node deps
+    - "*/__pycache__/*"             # python cache
+    - "*/.venv/*"                   # venv
+    - "*/!Temporary_임시보관용-올린사람이삭제까지해주세요!/"
+    
+    filters:
+  #  - ".*foo.*"
+  #  - "^4\\d{3}([\\ \\-]?)\\d{4}\\1\\d{4}\\1\\d{4}$" # do not index files containing credit card numbers
+
+  # optional: special handling of JSON files, should only be used if ALL files are JSON
+  #json_support: "${FSCRAWLER_JSON:=false}"
+  # optional: if false, all JSON files will be added as documents, if true, they will be added as JSON objects
+  #add_as_inner_object: false
+
+  # optional: special handling of XML files, should only be used if ALL files are XML
+  #xml_support: "false"
+
+  # optional: if true, the crawler will follow symbolic links
+    follow_symlinks: false
+  # optional: if true, the crawler will remove files found as deleted
+  #remove_deleted: true
+  # optional: if false, the crawler will stop crawling at the first error found
+  #continue_on_error: false
+  # optional: do not send big files to TIKA
+  #ignore_above: "512mb"
+
+  # optional: use MD5 from filename (instead of filename) if set to false
+  #filename_as_id: true
+  #
+  # 현재 상황에선 인덱스를 사용하지 않으니 false 처리
+  # 이 경우 meta 오브젝트 부분의 정보도 크롤링을 하지 않음.
+    index_content: false
+
+  # include size ot file in index
+  #add_filesize: true
+
+  # include user/group of file only if needed
+    attributes_support: false
+
+  # optional: collect file ACL entries when available (requires attributes_support)
+  #acl_support: false
+
+  # optional: this will try to detect the language of the extracted content
+  #lang_detect: false
+
+  # optional: do you REALLY want to store every file as a copy in the index? Then set this to true
+  #store_source: false
+
+  # optional: how much data from the content of the file should be indexed (and stored inside the index), set to 0 if you need checksum, but no content at all to be indexed
+  #indexed_chars: "0"
+  #indexed_chars: "10000.0"
+
+  # optional: usually file metadata will be stored in separate fields, if you want to keep the original set, set this to true
+  #raw_metadata: false
+
+  # optional: add checksum meta (requires index_content to be set to true)
+  #checksum: "MD5"
+
+  # optional: recommended, but will create another index
+  #index_folders: true
+
+  # optional: the optional path to a specific external Tika Configuration file
+  #tika_config_path: "/path/to/tika-config.xml"
+
+  # optional: the OCR Options
+  #ocr:
+    # optional: enable or disable OCR
+    #enabled: "true"
+    # optional: language to use for OCR
+    #language: "eng"
+    # optional: path to the Tesseract binary
+    #path: "/path/to/tesseract/if/not/available/in/PATH"
+    # optional: path to the Tesseract tessdata directory
+    #data_path: "/path/to/tesseract/tessdata/if/needed"
+    # optional: the OCR output type, either txt or hocr
+    #output_type: txt
+    # optional: the OCR strategy, either auto, no_ocr, ocr_only, ocr_and_text
+    #pdf_strategy: ocr_and_text
+    # optional: the mode to use for page orientation from 0 to 13
+    #page_seg_mode: 1 # automatic mode
+    # optional: if true, we will try to preserve interword spacing
+    #preserve_interword_spacing: false
+
+# optional: define metadata tags to be added to each document
+#tags:
+  # optional: if the filename is found in the directory, it will be used as a metadata
+  # content of the file will be indexed
+  #meta_filename: "meta_tags.json" # default is ".meta.yml"
+  # optional: if defined and found, all documents will have the associated metadata added
+  #static_meta_filename: "/path/to/meta_tags.json" # default is null
+
+# optional: only required if you want to SSH to another server to index documents from there
+#server:
+  # optional: hostname, defaults to "localhost"
+  #hostname: "localhost"
+  # optional: port, defaults to 22
+  #port: 22
+  # optional: username
+  #username: "dadoonet"
+  # optional: password
+  #password: "password@{secret}"
+  # optional: protocol, either "ssh" or "local"
+  #protocol: "ssh"
+  # optional: path to the private key
+  #pem_path: "/path/to/pemfile"
+
+# optional: define this if you want to change the default Elasticsearch settings/behavior
+elasticsearch:
+  # optional: list of Elasticsearch node urls
+  urls:
+    - "https://127.0.0.1:9200"
+  username : "elastic"
+  password : "Y0cKfN5vXZKuFiTIfJZ*"
+  # optional: the index name to use. Defaults to name property + "_docs"
+  index: "smart-solution-raw-index-v1"
+  # optional: the index name to use for folders. Defaults to name property + "_folder"
+  #index_folder: "test_folder"
+  # optional: the bulk size in number of documents
+  bulk_size: 100
+  # optional: the bulk flush period
+  flush_interval: "5s"
+  # optional: the bulk size in bytes
+  #byte_size: "10mb"
+  # api key (username and password are deprecated and should not be used anymore)
+  #api_key: "YOUR_API_KEY@{secret}"
+  # optional: path to the Ca certificate if using self-signed certificates
+  #ca_certificate: "/path/to/ca.crt"
+
+  # optional: the index pipeline
+  #pipeline: "my_pipeline"
+
+  # optional: do we create/update the component and index templates when starting? Defaults to "true"
+  #push_templates: "true"
+  # optional, defaults to "true", used with Elasticsearch 8.17+ with a trial or enterprise license
+  semantic_search: "false"
+
+# only used when started with --rest option
+#rest:
+  # optional: the URL FSCrawler will listen to.
+  #url: "http://127.0.0.1:8080"
+  # optional: if you want to enable Cross-Origin Resource Sharing
+  #enable_cors: true
