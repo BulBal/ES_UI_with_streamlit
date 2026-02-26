@@ -34,14 +34,13 @@ class EsClient:
             hits.append(EsHit(
                 id=str(h.get("_id", "")),
                 score=float(h.get("_score", 0.0) or 0.0),
-                title=str(src.get("title", "") or ""),
                 filename=str(src.get("filename", "") or ""),
                 path_virtual=str(src.get("path_virtual", "") or ""),
                 path_real=str(src.get("path_real", "") or ""),
                 extension=str(src.get("extension", "") or ""),
                 created_at=str(src.get("created_at", "") or ""),
                 modified_at=str(src.get("modified_at", "") or ""),
-                filesize_bytes=int(src.get("filesize_bytes", 0) or 0),
+                filesize_bytes=int(src.get("filesize", 0) or 0),
                 highlights={k: [str(x) for x in v] for k, v in hl.items()},
             ))
         return total, hits
