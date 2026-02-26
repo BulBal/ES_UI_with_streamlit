@@ -2,35 +2,32 @@ from typing import Any, Dict, List, Optional
 from dsl.base import DslBuilder, SearchParams
 
 FIELD_TO_ES = {
-    "title":    ["title^3", "title.partial^2"],
-    "filename": ["filename^2", "filename.partial^2"],
-    "author":   ["author", "author.partial"],
-    "keywords": ["keywords", "keywords.partial"],
-    "path":     ["path_tree^4"],
+    "filename": ["filename", "filename.en"],
+    "keywords": ["keywords"],
+    "path":     ["path_real.tree"],
 }
 
 class CrawlerMetaDslBuilder(DslBuilder):
-    def build(self, p: SearchParams) -> Dict[str, Any]:
-        page = max(1, p.page)
-        size = min(max(1, p.size), 50)
-        from_ = (page - 1) * size
+    def build(self, params: SearchParams) -> Dict[str, Any]:
+        page = max(1, params.page)
+        size = min(max(1, params.size), 50)
+        from_offset = (page - 1) * size
 
-        selected = p.selected_fields or ["title", "filename", "path"]
+        selected = params.selected_fields or ["filename", "path"]
 
         fields: List[str] = []
         for k in selected:
             fields.extend(FIELD_TO_ES.get(k, []))
         if not fields:
-            fields = ["title^3", "filename^2", "path_tree^4"]
+            fields = ["filename", "path_real.tree"]
 
         should = [
-            {"term": {"title.keyword": {"value": p.q, "boost": 8}}},
-            {"term": {"filename.keyword": {"value": p.q, "boost": 6}}},
+            {"term": {"filename.keyword": {"value": params.q, "boost": 6}}},
         ]
 
         must = [{
             "multi_match": {
-                "query": p.q,
+                "query": params.q,
                 "fields": fields,
                 "type": "best_fields",
                 "operator": "or",
@@ -39,20 +36,21 @@ class CrawlerMetaDslBuilder(DslBuilder):
         }]
 
         filters: List[Dict[str, Any]] = []
-        if p.extension:
-            filters.append({"term": {"extension": p.extension.lower()}})
+        if params.extension:
+            filters.append({"term": {"extension": params.extension.lower()}})
 
-        if p.created_from or p.created_to:
-            rng: Dict[str, Any] = {}
-            if p.created_from: rng["gte"] = p.created_from.isoformat()
-            if p.created_to:   rng["lte"] = p.created_to.isoformat()
-            filters.append({"range": {"created_at": rng}})
+        if params.created_from or params.created_to:
+            modified_range: Dict[str, Any] = {}
+            create_range: Dict[str, Any] = {}
+            if params.created_from: create_range["gte"] = params.created_from.isoformat()
+            if params.created_to:   create_range["lte"] = params.created_to.isoformat()
+            filters.append({"range": {"created_at": create_range}})
 
-        if p.modified_from or p.modified_to:
-            rng: Dict[str, Any] = {}
-            if p.modified_from: rng["gte"] = p.modified_from.isoformat()
-            if p.modified_to:   rng["lte"] = p.modified_to.isoformat()
-            filters.append({"range": {"modified_at": rng}})
+        if params.modified_from or params.modified_to:
+            modified_range: Dict[str, Any] = {}
+            if params.modified_from: modified_range["gte"] = params.modified_from.isoformat()
+            if params.modified_to:   modified_range["lte"] = params.modified_to.isoformat()
+            filters.append({"range": {"modified_at": modified_range}})
 
         bool_q: Dict[str, Any] = {"must": must, "should": should, "minimum_should_match": 0}
         if filters:
@@ -60,12 +58,12 @@ class CrawlerMetaDslBuilder(DslBuilder):
 
         dsl: Dict[str, Any] = {
             "track_total_hits": True,
-            "from": from_,
+            "from": from_offset,
             "size": size,
             "_source": [
-                "title", "filename", "path_virtual", "path_real",
+                "filename", "path_virtual", "path_real",
                 "extension", "created_at", "modified_at",
-                "filesize_bytes", "content_type", "source_index"
+                "filesize"
             ],
             "query": {"bool": bool_q},
             "highlight": {
@@ -73,10 +71,9 @@ class CrawlerMetaDslBuilder(DslBuilder):
                 "post_tags": ["</mark>"],
                 "require_field_match": False,
                 "fields": {
-                    "title": {"number_of_fragments": 0},
                     "filename": {"number_of_fragments": 0},
                 }
             },
-            "sort": [{"modified_at": {"order": "desc"}}] if p.sort == "RECENCY" else [{"_score": {"order": "desc"}}],
+            "sort": [{"modified_at": {"order": "desc"}}] if params.sort == "RECENCY" else [{"_score": {"order": "desc"}}],
         }
         return dsl

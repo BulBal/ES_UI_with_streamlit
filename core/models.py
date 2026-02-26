@@ -5,7 +5,6 @@ from typing import Dict, List
 class EsHit:
     id: str
     score: float
-    title: str
     filename: str
     path_virtual: str
     path_real: str

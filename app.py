@@ -18,11 +18,8 @@ es = EsClient(cfg)
 dsl_registry = DslRegistry()
 
 SEARCH_FIELD_OPTIONS = [
-    ("title", "제목"),
     ("filename", "파일명"),
     ("path", "경로(하위 포함)"),
-    ("author", "작성자"),
-    ("keywords", "키워드"),
 ]
 
 def apply_ui_sort(df: pd.DataFrame, sort_col: str, ascending: bool) -> pd.DataFrame:
@@ -90,18 +87,32 @@ st.caption("UI는 app.py에, DSL/ES 호출은 모듈로 분리")
 
 with st.sidebar:
     st.subheader("검색 가능한 인덱스")
+
+    IDX_KEY = "selected_index"
     try:
         idx_list = fetch_accessible_indices()
         st.caption(f"총 {len(idx_list)}개")
+
+        index_options = idx_list if idx_list else [cfg.es_default_index]
+
+        # 이전 선택 복구(목록에 없으면 기본값)
+        prev_selected = st.session_state.get(IDX_KEY, cfg.es_default_index)
+        if prev_selected not in index_options:
+            prev_selected = index_options[0]
+
         selected_index = st.selectbox(
             "검색 인덱스",
-            options=idx_list if idx_list else [cfg.es_default_index],
-            index=0,
+            options=index_options,
+            index= index_options.index(prev_selected) if prev_selected in index_options else 0,
+            key=IDX_KEY
         )
     except Exception as e:
         st.warning("인덱스 목록 조회 실패")
         st.code(str(e))
-        selected_index = cfg.es_default_index
+        # 인덱스 선택 UI는 기본값 하나로 fallback
+        if IDX_KEY in st.session_state:
+            st.session_state[IDX_KEY] = cfg.es_default_index
+        selected_index = st.session_state.get(IDX_KEY, cfg.es_default_index)
 
     st.divider()
     st.subheader("검색 옵션")
@@ -143,20 +154,21 @@ with st.sidebar:
 # 검색 대상 필드 기능 
 label_by_key = dict(SEARCH_FIELD_OPTIONS)
 keys = list(label_by_key.keys())
+
 ms_key = "ui_selected_fields"
-prev = st.session_state.get(ms_key, ["title", "filename", "path"])
-prev = [x for x in prev if x in keys] or ["title", "filename", "path"]
+prev_fields = st.session_state.get(ms_key, ["filename", "path"])
+prev_fields = [x for x in prev_fields if x in keys] or [ "filename", "path"]
 
 selected_fields = st.multiselect(
     "검색 대상 필드",
     options=keys,
-    default=prev,
+    default=prev_fields,
     format_func=lambda k: label_by_key.get(k, k),
     key=ms_key
 )
 
 # 검색창 기능 
-query = st.text_input("검색어(자연어) 입력", placeholder="예: 25년도 회계 장부 ", key="query_text")
+st.text_input("검색어(자연어) 입력", placeholder="예: 25년도 회계 장부 ", key="query_text")
 colA, colB, _ = st.columns([1, 1, 6])
 
 if colA.button("검색", type="primary", use_container_width=True):
@@ -165,12 +177,20 @@ if colA.button("검색", type="primary", use_container_width=True):
         st.stop()
     st.session_state.should_search = True
     st.session_state.page = 1
+def reset_search_state(keep_keys: None):
+    keep_keys = keep_keys or []
+    keep ={k: st.session_state.get(k) for k in keep_keys if k in st.session_state}
+    st.session_state.clear()
+    for k, v in keep.items():
+        st.session_state[k] = v
 
 if colB.button("초기화", use_container_width=True):
-    st.session_state.clear()
+    reset_search_state(keep_keys=[IDX_KEY, "size", "page"])
     st.rerun()
 
 if st.session_state.get("should_search", False):
+    selected_index = st.session_state.get(IDX_KEY, cfg.es_default_index)
+    
     builder = dsl_registry.get(selected_index)
     params = SearchParams(
         q=st.session_state.query_text.strip(),
