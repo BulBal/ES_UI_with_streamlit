@@ -25,11 +25,13 @@ class CrawlerMetaDslBuilder(DslBuilder):
             {"term": {"filename.keyword": {"value": params.q, "boost": 6}}},
         ]
 
+        # 여기서 검색어에 대한 검색 설정을 더 세밀하게 조정할 수 있음 (예: 특정 필드 가중치, 매칭 유형, 분석기 명시 등)
         must = [{
             "multi_match": {
                 "query": params.q,
                 "fields": fields,
                 "type": "best_fields",
+                "analyzer": "filename_nori",
                 "operator": "or",
                 "minimum_should_match": "2<75%"
             }
