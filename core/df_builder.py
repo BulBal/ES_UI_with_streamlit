@@ -2,15 +2,13 @@ import pandas as pd
 from typing import Any, Dict, List
 
 
-DEFAULT_COLUMNS = [
-    "title", 
+DEFAULT_COLUMNS = [ 
     "filename", 
     "extension", 
     "created_at", 
     "modified_at", 
     "path_real", 
     "path_virtual", 
-    "path_tree", 
     "filesize_bytes"
     ]
 

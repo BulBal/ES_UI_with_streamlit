@@ -33,6 +33,7 @@ class CrawlerMetaDslBuilder(DslBuilder):
                 "type": "best_fields",
                 "analyzer": "filename_nori",
                 "operator": "or",
+                "analyzer": "filename_en",
                 "minimum_should_match": "2<75%"
             }
         }]
