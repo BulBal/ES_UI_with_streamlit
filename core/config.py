@@ -24,7 +24,7 @@ class AppConfig:
 def load_config() -> AppConfig:
     # 운영(Linux)에서 표준은 환경변수 주입이므로 os.environ을 소스로 삼는다.
     return AppConfig(
-        es_base_url=os.getenv("ES_BASE_URL", "https://localhost:9200"),
+        es_base_url=os.getenv("ES_BASE_URL", "https://127.0.0.1:9200"),
         es_default_index=os.getenv("ES_INDEX", "d_crawler_search"),
         es_user=os.getenv("ES_USER", "elastic"),
         es_pass=os.getenv("ES_PASS", "changeme"),
