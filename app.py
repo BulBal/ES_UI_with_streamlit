@@ -1,358 +1,198 @@
-import os
 import json
 import math
-from dataclasses import dataclass
 from datetime import date
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional
 
-import requests
 import streamlit as st
-from requests.auth import HTTPBasicAuth
+import requests
+import pandas as pd
 
-# =========================
-# ✅ Config (ENV 우선)
-# =========================
-ES_BASE_URL = os.getenv("ES_BASE_URL", "https://localhost:9200")   # ES 8.x는 보통 https + self-signed
-ES_INDEX    = os.getenv("ES_INDEX", "pmc_search_v1")
-ES_USER     = os.getenv("ES_USER", "elastic")
-ES_PASS     = os.getenv("ES_PASS", "D69sYJN57Y0PlcplIGaQ")
-ES_VERIFY_SSL = os.getenv("ES_VERIFY_SSL", "false").lower() in ("1", "true", "yes")  # 실습: self-signed면 false
-DEFAULT_SIZE = int(os.getenv("ES_PAGE_SIZE", "10"))
+from core.config import load_config
+from core.es_client import EsClient
+from dsl.base import SearchParams
+from dsl.registry import DslRegistry
+from core.df_builder import hits_to_rows, rows_to_df
 
-# =========================
-# ✅ Query Builder (DSL 템플릿)
-# =========================
-def build_dsl(
-    q: str,
-    page: int,
-    size: int,
-    sort: str,
-    extension: Optional[str],
-    created_from: Optional[date],
-    created_to: Optional[date],
-    modified_from: Optional[date],   # ✅ 추가
-    modified_to: Optional[date],
-) -> Dict[str, Any]:
+cfg = load_config()
+es = EsClient(cfg)
+dsl_registry = DslRegistry()
+
+SEARCH_FIELD_OPTIONS = [
+    ("filename", "파일명"),
+    ("path", "경로(하위 포함)"),
+]
+
+def apply_ui_sort(df: pd.DataFrame, sort_col: str, ascending: bool) -> pd.DataFrame:
     """
-    Streamlit 단일앱에서 '자연어 입력 문자열(q)'을 ES Query DSL로 변환하는 최소 템플릿.
-    - multi_match: title^3, filename^2, body, path_virtual, path_real
-    - filter: extension.keyword, created_at range (옵션)
-    - highlight: title(전체), body(fragment)
+    UI 단 정렬: ES 정렬과 완전히 분리.
     """
-    page = max(1, page)
-    size = min(max(1, size), 50)  # 과도한 응답 방지(실습용 상한)
-    from_ = (page - 1) * size
+    if df.empty or sort_col not in df.columns:
+        return df
+    # ✅ NaN/빈값 섞여도 안정적으로 정렬되게
+    return df.sort_values(by=sort_col, ascending=ascending, na_position="last").reset_index(drop=True)
 
-    must = [{
-        "multi_match": {
-            "query": q,
-            "fields": ["title^3", "filename^2", "body", "path_virtual", "path_real"],
-            "type": "best_fields",
-            "operator": "and"
-        }
-    }]
-
-    filters: List[Dict[str, Any]] = []
-    if extension:
-        # mapping에 extension.keyword가 존재하므로 keyword로 term 필터 권장
-        filters.append({"term": {"extension.keyword": extension.lower()}})
-
-    if created_from or created_to:
-        rng: Dict[str, Any] = {}
-        if created_from:
-            rng["gte"] = created_from.isoformat()
-        if created_to:
-            rng["lte"] = created_to.isoformat()
-        filters.append({"range": {"created_at": rng}})
-    
-    if modified_from or modified_to:
-        rng: Dict[str, Any] = {}
-        if modified_from:
-            rng["gte"] = modified_from.isoformat()
-        if modified_to:
-            rng["lte"] = modified_to.isoformat()
-        filters.append({"range": {"modified_at": rng}})
-
-    query: Dict[str, Any] = {"bool": {"must": must, "filter": filters}} if filters else {"bool": {"must": must}}
-
-    dsl: Dict[str, Any] = {
-        "track_total_hits": True,
-        "from": from_,
-        "size": size,
-        "_source": [
-            "title", "filename", "path_virtual", "path_real",
-            "extension", "created_at", "modified_at", "filesize_bytes", "content_type", "source_index"
-        ],
-        "query": query,
-        "highlight": {
-            "pre_tags": ["<mark>"],
-            "post_tags": ["</mark>"],
-            "require_field_match": False,
-            "fields": {
-                "title": {"number_of_fragments": 0},
-                "body": {"fragment_size": 180, "number_of_fragments": 2}
-            }
-        }
-    }
-
-    if sort == "RECENCY":
-        dsl["sort"] = [{"created_at": {"order": "desc"}}]
-
-    return dsl
-
-
-
-# =========================
-# ✅ ES Client
-# =========================
-@dataclass
-class EsHit:
-    id: str
-    score: float
-    title: str
-    filename: str
-    path_virtual: str
-    path_real: str
-    extension: str
-    created_at: str
-    modified_at: str
-    filesize_bytes: int
-    highlights: Dict[str, List[str]]
-
-def es_search(dsl: Dict[str, Any]) -> Tuple[int, List[EsHit]]:
-    """ES REST API 호출. (실습: BasicAuth, verify 옵션 제공)"""
-    url = f"{ES_BASE_URL.rstrip('/')}/{ES_INDEX}/_search"
-    r = requests.post(
-        url,
-        auth=HTTPBasicAuth(ES_USER, ES_PASS),
-        headers={"Content-Type": "application/json"},
-        data=json.dumps(dsl),
-        verify=ES_VERIFY_SSL,
-        timeout=15,
-    )
-    r.raise_for_status()
-    payload = r.json()
-
-    total = int(payload.get("hits", {}).get("total", {}).get("value", 0))
-    hits_raw = payload.get("hits", {}).get("hits", [])
-
-    hits: List[EsHit] = []
-    for h in hits_raw:
-        src = h.get("_source", {}) or {}
-        hl = h.get("highlight", {}) or {}
-        hits.append(EsHit(
-            id=str(h.get("_id", "")),
-            score=float(h.get("_score", 0.0) or 0.0),
-            title=str(src.get("title", "") or ""),
-            filename=str(src.get("filename", "") or ""),
-            path_virtual=str(src.get("path_virtual", "") or ""),
-            path_real=str(src.get("path_real", "") or ""),
-            extension=str(src.get("extension", "") or ""),
-            created_at=str(src.get("created_at", "") or ""),
-            modified_at=str(src.get("modified_at", "") or ""),
-            filesize_bytes=int(src.get("filesize_bytes", 0) or 0),
-            highlights={k: [str(x) for x in v] for k, v in hl.items()}
-        ))
-
-    return total, hits
-# =========================
-#✅ 페이지 바 UI 함수 (붙여넣기)
-# =========================
 def render_pagination(total: int, page: int, size: int, window: int = 7) -> int:
-    """
-    - total: 전체 hit 수
-    - page: 현재 페이지(1-base)
-    - size: 페이지 크기
-    - window: 한 번에 보여줄 페이지 버튼 개수(홀수 추천)
-    반환: 사용자가 클릭한 새 page (변경 없으면 기존 page)
-    """
     if total <= 0:
         return page
-
     total_pages = max(1, math.ceil(total / size))
     page = max(1, min(page, total_pages))
-
-    # prev/next
     c1, c2, c3 = st.columns([1, 6, 1])
     with c1:
-        prev_disabled = page <= 1
-        if st.button("◀ 이전", disabled=prev_disabled, use_container_width=True, key="pg_prev"):
+        if st.button("◀ 이전", disabled=(page <= 1), use_container_width=True, key="pg_prev"):
             return page - 1
-
-    # 가운데: 숫자 버튼들
     with c2:
-        # 윈도우 범위 계산
         half = window // 2
         start = max(1, page - half)
         end = min(total_pages, start + window - 1)
         start = max(1, end - window + 1)
-
-        cols = st.columns(min(window + 4, 30))  # 너무 많은 columns 방지
-
+        cols = st.columns(min(window + 5, 30))
         i = 0
         def page_btn(p: int, label: str = None):
             nonlocal i
             label = label or str(p)
             is_current = (p == page)
-            # 현재 페이지는 disabled로 표시(클릭 방지)
             if cols[i].button(label, disabled=is_current, use_container_width=True, key=f"pg_{p}"):
                 return p
             i += 1
             return None
-
-        # 1 ... 표시
         newp = None
         if start > 1:
             newp = page_btn(1, "1")
             if newp: return newp
             if start > 2:
-                # dots (버튼 대신 텍스트)
                 cols[i].markdown("<div style='text-align:center; padding-top:8px;'>…</div>", unsafe_allow_html=True)
                 i += 1
-
-        # start~end
         for p in range(start, end + 1):
             newp = page_btn(p)
             if newp: return newp
-
-        # ... last 표시
         if end < total_pages:
             if end < total_pages - 1:
                 cols[i].markdown("<div style='text-align:center; padding-top:8px;'>…</div>", unsafe_allow_html=True)
                 i += 1
             newp = page_btn(total_pages, str(total_pages))
             if newp: return newp
-
         st.caption(f"{page} / {total_pages} 페이지 · 총 {total:,}건")
-
     with c3:
-        next_disabled = page >= total_pages
-        if st.button("다음 ▶", disabled=next_disabled, use_container_width=True, key="pg_next"):
+        if st.button("다음 ▶", disabled=(page >= total_pages), use_container_width=True, key="pg_next"):
             return page + 1
-
     return page
 
-# =========================
-# ✅ ES: 접근 가능한 인덱스 목록 가져오기 (UI 표시용)
-# =========================
 @st.cache_data(ttl=30)
 def fetch_accessible_indices() -> List[str]:
-    """
-    현재 ES 계정으로 '보이는' 인덱스 목록을 가져온다.
-    - 권한이 없으면 일부만 보이거나 에러날 수 있음(그게 정상)
-    """
-    url = f"{ES_BASE_URL.rstrip('/')}/_cat/indices"
-    r = requests.get(
-        url,
-        auth=HTTPBasicAuth(ES_USER, ES_PASS),
-        params={"format": "json", "h": "index"},
-        verify=ES_VERIFY_SSL,
-        timeout=10,
-    )
-    r.raise_for_status()
-    rows = r.json() or []
-    names = sorted({row.get("index") for row in rows if row.get("index")})
-    return names
-# =========================
-# ✅ UI
-# =========================
-st.set_page_config(page_title="PMC Search (Streamlit)", layout="wide")
+    return es.list_indices()
 
-st.title("PMC 문서 검색 (Streamlit 단일 앱)")
-st.caption("자연어 입력 → 파이썬에서 DSL 생성 → ES 검색 → 결과 리스트/하이라이트 출력")
+st.set_page_config(page_title="ES Search (Streamlit)", layout="wide")
+st.title("문서 검색 (Streamlit)")
+st.caption("UI는 app.py에, DSL/ES 호출은 모듈로 분리")
 
 with st.sidebar:
-    st.subheader("검색 가능한 인덱스(읽기 전용)")
+    st.subheader("검색 가능한 인덱스")
 
+    IDX_KEY = "selected_index"
     try:
         idx_list = fetch_accessible_indices()
-        st.caption(f"총 {len(idx_list)}개 (현재 계정 권한 기준)")
-        # ✅ 보기만: 멀티셀렉트로 보여주되 선택값은 아직 사용 안 함
-        st.multiselect(
-            "인덱스 목록",
-            options=idx_list,
-            default=[ES_INDEX] if ES_INDEX in idx_list else [],
-            help="지금은 UI 표시만 합니다. (선택해도 검색 대상은 아직 고정)",
-            key="ui_index_view",
+        st.caption(f"총 {len(idx_list)}개")
+
+        index_options = idx_list if idx_list else [cfg.es_default_index]
+
+        # 이전 선택 복구(목록에 없으면 기본값)
+        prev_selected = st.session_state.get(IDX_KEY, cfg.es_default_index)
+        if prev_selected not in index_options:
+            prev_selected = index_options[0]
+
+        selected_index = st.selectbox(
+            "검색 인덱스",
+            options=index_options,
+            index= index_options.index(prev_selected) if prev_selected in index_options else 0,
+            key=IDX_KEY
         )
-    except requests.HTTPError as e:
-        st.warning("인덱스 목록을 불러오지 못했습니다(권한/설정 확인 필요).")
-        st.code(str(e))
     except Exception as e:
-        st.warning("인덱스 목록 조회 중 오류가 발생했습니다.")
+        st.warning("인덱스 목록 조회 실패")
         st.code(str(e))
+        # 인덱스 선택 UI는 기본값 하나로 fallback
+        if IDX_KEY in st.session_state:
+            st.session_state[IDX_KEY] = cfg.es_default_index
+        selected_index = st.session_state.get(IDX_KEY, cfg.es_default_index)
 
     st.divider()
     st.subheader("검색 옵션")
     if "size" not in st.session_state:
-        st.session_state.size = DEFAULT_SIZE
-
-    size = st.number_input("페이지 크기", min_value=1, max_value=50, value=int(st.session_state.size), step=1)
-    if int(size) != int(st.session_state.size):
-        st.session_state.size = int(size) 
-        st.session_state.page = 1  # ✅ size 바뀌면 1페이지로
-
-    # ✅ session_state에 page 유지 (없으면 1로 초기화)
+        st.session_state.size = cfg.default_size
     if "page" not in st.session_state:
         st.session_state.page = 1
 
-    page = st.number_input("페이지", min_value=1, value=int(st.session_state.page), step=1)
-    # 사용자가 number_input을 바꾸면 state도 동기화
+    size = st.number_input("페이지 크기", 1, 50, int(st.session_state.size), 1)
+    if int(size) != int(st.session_state.size):
+        st.session_state.size = int(size)
+        st.session_state.page = 1
+
+    page = st.number_input("페이지", 1, value=int(st.session_state.page), step=1)
     st.session_state.page = int(page)
-    sort = st.selectbox("정렬", options=["RELEVANCE", "RECENCY"], index=0)
+
+    sort = st.selectbox("정렬", ["RELEVANCE", "RECENCY"], 0)
 
     st.divider()
-    st.subheader("필터 (옵션)")
-    extension = st.text_input("확장자(extension)", placeholder="예: pdf / docx / pptx ...").strip() or None
+    extension = st.text_input("확장자", placeholder="pdf / docx / pptx ...").strip() or None
+
+    st.subheader("생성일 필터")
     c1, c2 = st.columns(2)
     created_from = c1.date_input("created_from", value=None)
     created_to = c2.date_input("created_to", value=None)
-
-    use_date_filter = st.checkbox("날짜 필터 사용", value=False)
-    if not use_date_filter:
+    if not st.checkbox("생성일 필터 사용", value=False):
         created_from = None
         created_to = None
-    
-    st.divider()
-    st.subheader("수정일 필터 (옵션)")
 
+    st.subheader("수정일 필터")
     m1, m2 = st.columns(2)
     modified_from = m1.date_input("modified_from", value=None)
     modified_to = m2.date_input("modified_to", value=None)
-
-    use_modified_filter = st.checkbox("수정일 필터 사용", value=False)
-    if not use_modified_filter:
+    if not st.checkbox("수정일 필터 사용", value=False):
         modified_from = None
         modified_to = None
 
-# =========================
-# ✅ Search Mode Selector (자연어 only)
-# =========================
 
-query = st.text_input(
-    "검색어(자연어) 입력",
-    placeholder="예: 인사팀 회의록 최근 3개월 pdf",
-    key="query_text",
+# 검색 대상 필드 기능 
+label_by_key = dict(SEARCH_FIELD_OPTIONS)
+keys = list(label_by_key.keys())
+
+ms_key = "ui_selected_fields"
+prev_fields = st.session_state.get(ms_key, ["filename", "path"])
+prev_fields = [x for x in prev_fields if x in keys] or [ "filename", "path"]
+
+selected_fields = st.multiselect(
+    "검색 대상 필드",
+    options=keys,
+    default=prev_fields,
+    format_func=lambda k: label_by_key.get(k, k),
+    key=ms_key
 )
 
+# 검색창 기능 
+st.text_input("검색어(자연어) 입력", placeholder="예: 25년도 회계 장부 ", key="query_text")
 colA, colB, _ = st.columns([1, 1, 6])
 
-# ✅ 검색 버튼: 상태 플래그만 올림
 if colA.button("검색", type="primary", use_container_width=True):
     if not st.session_state.query_text.strip():
         st.warning("검색어를 입력해줘.")
         st.stop()
     st.session_state.should_search = True
-    st.session_state.page = 1  # 새 검색은 1페이지부터
-
-# ✅ 초기화
-if colB.button("초기화", use_container_width=True):
+    st.session_state.page = 1
+def reset_search_state(keep_keys: None):
+    keep_keys = keep_keys or []
+    keep ={k: st.session_state.get(k) for k in keep_keys if k in st.session_state}
     st.session_state.clear()
+    for k, v in keep.items():
+        st.session_state[k] = v
+
+if colB.button("초기화", use_container_width=True):
+    reset_search_state(keep_keys=[IDX_KEY, "size", "page"])
     st.rerun()
 
-# ✅ 검색 실행: should_search가 True면 실행
 if st.session_state.get("should_search", False):
-    dsl = build_dsl(
+    selected_index = st.session_state.get(IDX_KEY, cfg.es_default_index)
+    
+    builder = dsl_registry.get(selected_index)
+    params = SearchParams(
         q=st.session_state.query_text.strip(),
         page=int(st.session_state.page),
         size=int(st.session_state.size),
@@ -362,66 +202,107 @@ if st.session_state.get("should_search", False):
         created_to=created_to,
         modified_from=modified_from,
         modified_to=modified_to,
+        selected_fields=selected_fields
     )
+    dsl = builder.build(params)
 
     with st.expander("전송 DSL 보기", expanded=False):
         st.code(json.dumps(dsl, ensure_ascii=False, indent=2), language="json")
 
     try:
         with st.spinner("Elasticsearch 검색 중..."):
-            total, hits = es_search(dsl)
-
+            total, hits = es.search(selected_index, dsl)
+            rows = []
+            for h in hits:
+                rows.append({
+                    "filename": h.filename,
+                    "score": h.score,
+                    "path_real": h.path_real,
+                    "extension": h.extension,
+                    "created_at": h.created_at,
+                    "modified_at": h.modified_at,
+                    "filesize_bytes": h.filesize_bytes,
+                    "id": h.id,
+                })
+            result_df = pd.DataFrame(rows)
         st.success(f"총 {total}건")
         if not hits:
             st.info("검색 결과가 없습니다.")
         else:
-            for h in hits:
-                with st.container(border=True):
-                    top = st.columns([5, 2, 2, 1])
-                    title = h.title or "(제목 없음)"
-                    top[0].markdown(f"### {title}")
-                    top[1].markdown(f"**확장자**: `{h.extension or '-'}`")
-                    top[2].markdown(f"**크기**: `{h.filesize_bytes:,} bytes`")
-                    top[3].markdown(f"**score**: `{h.score:.2f}`")
+            # ✅ 정렬 UI (컬럼 선택 + 오름/내림)
+            # ES 정렬과 별개로, 화면에서만 정렬을 제공
+            sort_candidates = [c for c in result_df.columns if c not in ("doc_id",)]  # doc_id는 보통 정렬 필요 없음
+            c1, c2, c3 = st.columns([3, 2, 2])
 
-                    meta = st.columns([4, 6])
-                    meta[0].markdown(f"**파일명**: `{h.filename}`")
-                    meta[0].markdown(f"**created**: `{h.created_at}`")
-                    meta[0].markdown(f"**modified**: `{h.modified_at}`")
+            with c1:
+                sort_col = st.selectbox("정렬 기준 컬럼(UI)", options=sort_candidates, index=0, key="ui_sort_col")
+            with c2:
+                ascending = st.toggle("오름차순", value=True, key="ui_sort_asc")  # False면 내림차순
+            with c3:
+                # 버튼 방식이 필요하면 toggle 대신 버튼 2개로 바꿔도 됨
+                st.caption("※ ES 정렬과 무관, 화면에서만 정렬")
 
-                    meta[1].markdown(f"**path_virtual**: `{h.path_virtual}`")
-                    meta[1].markdown(f"**path_real**: `{h.path_real}`")
+            # ✅ CSV처럼 보이게: 전체 폭 + 스크롤
+            st.dataframe(
+                result_df,
+                use_container_width=True,
+                hide_index=True,
+            )       
+    #     else:
+            ### 검색 결과 UI 설계
+            # for h in hits:
+            #     with st.container(border=True):
+            #         # 1) 파일명 (강조)
+            #         st.markdown(f"**📄 {h.filename or '(제목 없음)'}**")
 
-                    snippets: List[str] = []
-                    if "body" in h.highlights:
-                        snippets = h.highlights["body"]
-                    elif "title" in h.highlights:
-                        snippets = h.highlights["title"]
+            #         # 2) 요약 경로 (여기서는 그냥 그대로 출력 — 요약 로직은 나중에)
+            #         st.caption(h.path_virtual or h.path_real or "-")
 
-                    if snippets:
-                        st.markdown("**본문 스니펫(하이라이트)**")
-                        for s in snippets:
-                            st.markdown(f"- {s}", unsafe_allow_html=True)
-                    else:
-                        st.caption("하이라이트가 없으면 analyzer/쿼리 조건에 따라 발생할 수 있어.")
+            #         # 3) 핵심 메타정보 + score (4칸 고정)
+            #         c1, c2, c3, c4 = st.columns([3, 2, 2, 2])
+            #         c1.markdown(f"**수정일**: `{h.modified_at or '-'}`")
+            #         c2.markdown(f"**확장자**: `{h.extension or '-'}`")
+            #         c3.markdown(f"**크기**: `{(str(h.filesize_bytes) + ' bytes') if h.filesize_bytes is not None else '-'}`")
+            #         c4.markdown(f"**score**: `{f'{h.score:.2f}' if h.score is not None else '-'}`")
+            # for h in hits:
+            #     with st.container(border=True):
+            #         top = st.columns([5, 2, 2, 1])
+            #         top[0].markdown(f"### {h.filename or '(제목 없음)'}")
+            #         top[1].markdown(f"**확장자**: `{h.extension or '-'}`")
+            #         top[2].markdown(f"**크기**: `{h.filesize_bytes:,} bytes`")
+            #         top[3].markdown(f"**score**: `{h.score:.2f}`")
 
-        # ✅ pagination: try 안 / 렌더링 끝난 뒤
-        new_page = render_pagination(
-            total=total,
-            page=int(st.session_state.page),
-            size=int(st.session_state.size),
-        )
-        if new_page != int(st.session_state.page):
-            st.session_state.page = new_page
-            st.session_state.should_search = True
-            st.rerun()
+            #         meta = st.columns([4, 6])
+            #         meta[0].markdown(f"**파일명**: `{h.filename}`")
+            #         meta[0].markdown(f"**created**: `{h.created_at}`")
+            #         meta[0].markdown(f"**modified**: `{h.modified_at}`")
+            #         meta[1].markdown(f"**path_virtual**: `{h.path_virtual}`")
+            #         meta[1].markdown(f"**path_real**: `{h.path_real}`")
+
+            #         snippets: List[str] = (
+            #             h.highlights.get("title")
+            #             or h.highlights.get("filename")
+            #             or h.highlights.get("body")
+            #             or []
+            #         )
+            #         if snippets:
+            #             st.markdown("**하이라이트**")
+            #             for s in snippets:
+            #                 st.markdown(f"- {s}", unsafe_allow_html=True)
+            #         else:
+            #             st.caption("하이라이트가 없으면 analyzer/쿼리 조건에 따라 발생할 수 있어.")
+
+        # new_page = render_pagination(total, int(st.session_state.page), int(st.session_state.size))
+        # if new_page != int(st.session_state.page):
+        #     st.session_state.page = new_page
+        #     st.session_state.should_search = True
+        #     st.rerun()
 
     except requests.exceptions.SSLError as e:
-        st.error("SSL 오류: ES가 self-signed HTTPS일 가능성이 큼")
+        st.error("SSL 오류: self-signed 가능성")
         st.code(str(e))
-        st.info("실습이면 ES_VERIFY_SSL=false 로 두거나, 신뢰할 수 있는 CA/인증서로 교체해야 함.")
     except requests.HTTPError as e:
-        st.error("ES 요청이 실패했어 (HTTPError)")
+        st.error("ES 요청 실패 (HTTPError)")
         st.code(str(e))
         try:
             st.json(e.response.json())
@@ -430,9 +311,3 @@ if st.session_state.get("should_search", False):
     except Exception as e:
         st.error("알 수 없는 오류")
         st.code(str(e))
-
-st.divider()
-st.caption(
-    "운영으로 갈 땐 ES 계정을 Streamlit에 박아두기보다, "
-    "별도 인증/권한 레이어(게이트웨이)를 두는 게 안전해."
-)

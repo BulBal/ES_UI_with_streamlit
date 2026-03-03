@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 venv/
 .env
+.streamlit
 
 # Streamlit
 .streamlit/secrets.toml
@@ -16,3 +17,4 @@ Thumbs.db
 
 # Logs
 *.log
+*.toml
