@@ -18,7 +18,7 @@ class EsClient:
             auth=HTTPBasicAuth(self.cfg.es_user, self.cfg.es_pass),
             headers={"Content-Type": "application/json"},
             data=json.dumps(dsl),
-            verify=self.cfg.es_verify_ssl,
+            verify=self.cfg.request_verify,
             timeout=15,
         )
         r.raise_for_status()
@@ -44,14 +44,17 @@ class EsClient:
                 highlights={k: [str(x) for x in v] for k, v in hl.items()},
             ))
         return total, hits
+    
+
 
     def list_indices(self) -> List[str]:
         url = f"{self.cfg.es_base_url.rstrip('/')}/_cat/indices"
+
         r = requests.get(
             url,
             auth=HTTPBasicAuth(self.cfg.es_user, self.cfg.es_pass),
             params={"format": "json", "h": "index"},
-            verify=self.cfg.es_verify_ssl,
+            verify=self.cfg.request_verify,
             timeout=10,
         )
         r.raise_for_status()
