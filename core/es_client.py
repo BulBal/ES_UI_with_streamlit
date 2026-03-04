@@ -7,6 +7,8 @@ from requests.auth import HTTPBasicAuth
 from core.config import AppConfig
 from core.models import EsHit
 
+SERVICE_ALIAS_PREFIXES = ("Smart_")
+
 class EsClient:
     def __init__(self, cfg: AppConfig):
         self.cfg = cfg
@@ -48,15 +50,17 @@ class EsClient:
 
 
     def list_indices(self) -> List[str]:
-        url = f"{self.cfg.es_base_url.rstrip('/')}/_cat/indices"
+        url = f"{self.cfg.es_base_url.rstrip('/')}/_cat/aliases"
 
         r = requests.get(
             url,
             auth=HTTPBasicAuth(self.cfg.es_user, self.cfg.es_pass),
-            params={"format": "json", "h": "index"},
+            params={"format": "json", "h": "alias"},
             verify=self.cfg.request_verify,
             timeout=10,
         )
         r.raise_for_status()
         rows = r.json() or []
-        return sorted({row.get("index") for row in rows if row.get("index")})
+        aliases = sorted({row.get("alias") for row in rows if row.get("alias")})
+        aliases = [a for a in aliases if a.startswith(SERVICE_ALIAS_PREFIXES)]
+        return aliases
