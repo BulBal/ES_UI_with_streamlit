@@ -19,10 +19,14 @@ class CrawlerSmartSolutionDslBuilder(DslBuilder):
         for k in selected:
             fields.extend(FIELD_TO_ES.get(k, []))
         if not fields:
-            fields = ["filename", "path_real.tree"]
+            fields = [
+                "filename^8",
+                "filename.num_unit^10",
+                "filename.edge^2",
+            ]
 
         should = [
-            {"term": {"filename.keyword": {"value": params.q, "boost": 6}}},
+            {"term": {"filename.keyword": {"value": params.q, "boost": 20}}},
         ]
 
         # 여기서 검색어에 대한 검색 설정을 더 세밀하게 조정할 수 있음 (예: 특정 필드 가중치, 매칭 유형, 분석기 명시 등)
@@ -30,10 +34,9 @@ class CrawlerSmartSolutionDslBuilder(DslBuilder):
             "multi_match": {
                 "query": params.q,
                 "fields": fields,
-                "type": "best_fields",
-                "analyzer": "filename_nori",
+                "type": "most_fields",
                 "operator": "or",
-                "minimum_should_match": "2<75%"
+                "minimum_should_match": "70%"
             }
         }]
 

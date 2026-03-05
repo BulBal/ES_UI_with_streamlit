@@ -1,6 +1,8 @@
 from dsl.base import DslBuilder
 from dsl.crawler_meta import CrawlerMetaDslBuilder
 from dsl.crawler_fulltext import CrawlerFulltextDslBuilder
+from dsl.crawler_smart_solution import CrawlerSmartSolutionDslBuilder
+
 
 class DslRegistry:
     """
@@ -13,12 +15,12 @@ class DslRegistry:
             # 기본 메타 검색용
             "d_crawler_search": CrawlerMetaDslBuilder(),
             "pmc_search_meta_v1": CrawlerMetaDslBuilder(),
-
+            "Smart_Solution_Team": CrawlerSmartSolutionDslBuilder(),
             # 본문 포함 인덱스 예시
             "pmc_search_fulltext_v1": CrawlerFulltextDslBuilder(),
         }
 
-        self._default = CrawlerMetaDslBuilder()
+        self._default = CrawlerSmartSolutionDslBuilder()
 
     def get(self, index: str) -> DslBuilder:
         return self._map.get(index, self._default)
