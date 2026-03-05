@@ -2,10 +2,20 @@ from typing import Any, Dict, List, Optional
 from dsl.base import DslBuilder, SearchParams
 
 FIELD_TO_ES = {
-    "filename": ["filename", "filename.en"],
-    "keywords": ["keywords"],
-    "path":     ["path_real.tree"],
+    "filename": [
+        "filename^8",
+        "filename.num_unit^10",
+        "filename.edge^2",
+        "filename.en^3"
+    ],
+    "keywords": [
+        "keywords^5"
+    ],
+    "path": [
+        "path_real.tree^3"
+    ],
 }
+DEFAULT_SEARCH_FIELDS = ["filename", "path"]
 
 class CrawlerSmartSolutionDslBuilder(DslBuilder):
     def build(self, params: SearchParams) -> Dict[str, Any]:
@@ -13,18 +23,13 @@ class CrawlerSmartSolutionDslBuilder(DslBuilder):
         size = min(max(1, params.size), 50)
         from_offset = (page - 1) * size
 
-        selected = params.selected_fields or ["filename", "path"]
+        selected = params.selected_fields or DEFAULT_SEARCH_FIELDS
 
         fields: List[str] = []
         for k in selected:
             fields.extend(FIELD_TO_ES.get(k, []))
         if not fields:
-            fields = [
-                "filename^8",
-                "filename.num_unit^10",
-                "filename.edge^2",
-            ]
-
+            fields = FIELD_TO_ES["filename"]
         should = [
             {"term": {"filename.keyword": {"value": params.q, "boost": 20}}},
         ]
