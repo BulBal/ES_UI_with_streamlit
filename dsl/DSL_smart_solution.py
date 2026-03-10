@@ -3,21 +3,17 @@ from dsl.base import DslBuilder, SearchParams
 
 FIELD_TO_ES = {
     "filename": [
-        "filename^8",
-        "filename.num_unit^10",
-        "filename.edge^2",
-        "filename.en^3"
-    ],
-    "keywords": [
-        "keywords^5"
+        "filename",
+        "filename.en"
     ],
     "path": [
-        "path_real.tree^3"
+        "path_recent",
+        "path_real.tree"
     ],
 }
 DEFAULT_SEARCH_FIELDS = ["filename", "path"]
 
-class CrawlerSmartSolutionDslBuilder(DslBuilder):
+class DSLSmartSolutionDslBuilder(DslBuilder):
     def build(self, params: SearchParams) -> Dict[str, Any]:
         page = max(1, params.page)
         size = min(max(1, params.size), 50)
@@ -30,20 +26,81 @@ class CrawlerSmartSolutionDslBuilder(DslBuilder):
             fields.extend(FIELD_TO_ES.get(k, []))
         if not fields:
             fields = FIELD_TO_ES["filename"]
-        should = [
-            {"term": {"filename.keyword": {"value": params.q, "boost": 20}}},
-        ]
+        q = params.q
 
         # 여기서 검색어에 대한 검색 설정을 더 세밀하게 조정할 수 있음 (예: 특정 필드 가중치, 매칭 유형, 분석기 명시 등)
-        must = [{
-            "multi_match": {
-                "query": params.q,
-                "fields": fields,
-                "type": "most_fields",
-                "operator": "or",
-                "minimum_should_match": "70%"
+        should: List[Dict[str, Any]] = [
+
+            # 1️⃣ exact match
+            {
+                "term": {
+                    "filename.keyword": {
+                        "value": q,
+                        "boost": 30
+                    }
+                }
+            },
+
+            # 2️⃣ phrase match
+            {
+                "match_phrase": {
+                    "filename": {
+                        "query": q,
+                        "boost": 15
+                    }
+                }
+            },
+
+            # 3️⃣ relevance match
+            {
+                "dis_max": {
+                    "tie_breaker": 0.2,
+                    "queries": [
+
+                        {
+                            "match": {
+                                "filename": {
+                                    "query": q,
+                                    "boost": 5,
+                                    "minimum_should_match": "70%"
+                                }
+                            }
+                        },
+
+                        {
+                            "match": {
+                                "filename.en": {
+                                    "query": q,
+                                    "boost": 5,
+                                    "minimum_should_match": "70%"
+                                }
+                            }
+                        },
+
+                        {
+                            "match": {
+                                "path_recent": {
+                                    "query": q,
+                                    "boost": 3,
+                                    "minimum_should_match": "50%"
+                                }
+                            }
+                        },
+
+                        {
+                            "match": {
+                                "path_real.tree": {
+                                    "query": q,
+                                    "boost": 2,
+                                    "minimum_should_match": "30%"
+                                }
+                            }
+                        }
+
+                    ]
+                }
             }
-        }]
+        ]
 
         filters: List[Dict[str, Any]] = []
         if params.extension:
@@ -62,7 +119,7 @@ class CrawlerSmartSolutionDslBuilder(DslBuilder):
             if params.modified_to:   modified_range["lte"] = params.modified_to.isoformat()
             filters.append({"range": {"modified_at": modified_range}})
 
-        bool_q: Dict[str, Any] = {"must": must, "should": should, "minimum_should_match": 0}
+        bool_q: Dict[str, Any] = { "should": should, "minimum_should_match": 1}
         if filters:
             bool_q["filter"] = filters
 
@@ -76,6 +133,7 @@ class CrawlerSmartSolutionDslBuilder(DslBuilder):
                 "filesize"
             ],
             "query": {"bool": bool_q},
+            
             "highlight": {
                 "pre_tags": ["<mark>"],
                 "post_tags": ["</mark>"],
