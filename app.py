@@ -132,7 +132,7 @@ with st.sidebar:
     sort = st.selectbox("정렬", ["RELEVANCE", "RECENCY"], 0)
 
     st.divider()
-    extension = st.text_input("확장자", placeholder="pdf / docx / pptx ...").strip() or None
+    extension = st.text_input("확장자", placeholder="pdf / docx / pptx ...", help=EXTENSION_HELP).strip() or None
 
     st.subheader("생성일 필터")
     c1, c2 = st.columns(2)
@@ -311,3 +311,70 @@ if st.session_state.get("should_search", False):
     except Exception as e:
         st.error("알 수 없는 오류")
         st.code(str(e))
+
+
+
+
+
+# 좀 코드 많이 잡아먹는 default값
+EXTENSION_HELP = """
+### 지원 확장자 목록
+
+**1. 이미지**
+- `*.jpg`
+- `*.jpeg`
+- `*.png`
+- `*.gif`
+- `*.bmp`
+- `*.tif`
+- `*.tiff`
+- `*.webp`
+- `*.svg`
+- `*.heic`
+- `*.ai`
+- `*.ico`
+- `*.psd`
+
+**2. 문서**
+- `*.pdf`
+- `*.txt`
+- `*.md`
+- `*.rtf`
+- `*.doc`
+- `*.docx`
+- `*.ppt`
+- `*.pptx`
+- `*.xls`
+- `*.xlsx`
+- `*.xlsm`
+- `*.csv`
+- `*.hwp`
+- `*.hwpx`
+
+**3. 설정 / 구성**
+- `*.conf`
+- `*.properties`
+- `*.policy`
+- `*.manifest`
+- `*.yml`
+- `*.yaml`
+- `*.json`
+- `*.xml`
+- `*.toml`
+- `*.env`
+
+**4. 압축 / 패키징**
+- `*.zip`
+- `*.7z`
+- `*.rar`
+- `*.tar`
+- `*.gz`
+- `*.tgz`
+- `*.bz2`
+- `*.xz`
+- `*.iso`
+- `*.cab`
+
+**5. 기타**
+- `*.old`
+"""

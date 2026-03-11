@@ -62,7 +62,7 @@ class DSLSmartSolutionDslBuilder(DslBuilder):
                                 "filename": {
                                     "query": q,
                                     "boost": 5,
-                                    "minimum_should_match": "70%"
+                                    "minimum_should_match": "60%"
                                 }
                             }
                         },
@@ -72,7 +72,7 @@ class DSLSmartSolutionDslBuilder(DslBuilder):
                                 "filename.en": {
                                     "query": q,
                                     "boost": 5,
-                                    "minimum_should_match": "70%"
+                                    "minimum_should_match": "60%"
                                 }
                             }
                         },
@@ -81,8 +81,7 @@ class DSLSmartSolutionDslBuilder(DslBuilder):
                             "match": {
                                 "path_recent": {
                                     "query": q,
-                                    "boost": 3,
-                                    "minimum_should_match": "50%"
+                                    "boost": 3
                                 }
                             }
                         },
@@ -92,7 +91,7 @@ class DSLSmartSolutionDslBuilder(DslBuilder):
                                 "path_real.tree": {
                                     "query": q,
                                     "boost": 2,
-                                    "minimum_should_match": "30%"
+                                    
                                 }
                             }
                         }
