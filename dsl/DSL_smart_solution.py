@@ -20,105 +20,93 @@ class DSLSmartSolutionDslBuilder(DslBuilder):
         from_offset = (page - 1) * size
 
         selected = params.selected_fields or DEFAULT_SEARCH_FIELDS
+        q = (params.q or "").strip()
 
-        fields: List[str] = []
+        filename_fields: List[str] = []
+        path_fields: List[str] = []
+
         for k in selected:
-            fields.extend(FIELD_TO_ES.get(k, []))
-        if not fields:
-            fields = FIELD_TO_ES["filename"]
-        q = params.q
+            if k == "filename":
+                filename_fields.extend(FIELD_TO_ES.get("filename", []))
+            elif k == "path":
+                path_fields.extend(FIELD_TO_ES.get("path", []))
 
-        # 여기서 검색어에 대한 검색 설정을 더 세밀하게 조정할 수 있음 (예: 특정 필드 가중치, 매칭 유형, 분석기 명시 등)
-        should: List[Dict[str, Any]] = [
+        if not filename_fields and not path_fields:
+            filename_fields = FIELD_TO_ES["filename"]
 
-            # 1️⃣ exact match
-            {
+        should: List[Dict[str, Any]] = []
+
+        # 1) exact
+        if "filename" in selected or not selected:
+            should.append({
                 "term": {
                     "filename.keyword": {
                         "value": q,
-                        "boost": 30
-                    }
-                }
-            },
-
-            # 2️⃣ phrase match
-            {
-                "match_phrase": {
-                    "filename": {
-                        "query": q,
                         "boost": 15
                     }
                 }
-            },
+            })
 
-            # 3️⃣ relevance match
-            {
-                "dis_max": {
-                    "tie_breaker": 0.2,
-                    "queries": [
-
-                        {
-                            "match": {
-                                "filename": {
-                                    "query": q,
-                                    "boost": 5,
-                                    "minimum_should_match": "60%"
-                                }
-                            }
-                        },
-
-                        {
-                            "match": {
-                                "filename.en": {
-                                    "query": q,
-                                    "boost": 5,
-                                    "minimum_should_match": "60%"
-                                }
-                            }
-                        },
-
-                        {
-                            "match": {
-                                "path_recent": {
-                                    "query": q,
-                                    "boost": 3
-                                }
-                            }
-                        },
-
-                        {
-                            "match": {
-                                "path_real.tree": {
-                                    "query": q,
-                                    "boost": 2,
-                                    
-                                }
-                            }
-                        }
-
-                    ]
+            should.append({
+                "match_phrase": {
+                    "filename": {
+                        "query": q,
+                        "boost": 8
+                    }
                 }
-            }
-        ]
+            })
+
+        # 2) main relevance (filename 중심)
+        if filename_fields:
+            should.append({
+                "multi_match": {
+                    "query": q,
+                    "type": "cross_fields",
+                    "fields": filename_fields,
+                    "operator": "or",
+                    "minimum_should_match": "2<-25% 6<-40%",
+                    "boost": 1.0
+                }
+            })
+
+        # 3) path assist
+        if path_fields:
+            should.append({
+                "multi_match": {
+                    "query": q,
+                    "type": "best_fields",
+                    "fields": path_fields,
+                    "tie_breaker": 0.2,
+                    "minimum_should_match": "60%",
+                    "boost": 0.7
+                }
+            })
 
         filters: List[Dict[str, Any]] = []
+
         if params.extension:
             filters.append({"term": {"extension": params.extension.lower()}})
 
         if params.created_from or params.created_to:
-            modified_range: Dict[str, Any] = {}
-            create_range: Dict[str, Any] = {}
-            if params.created_from: create_range["gte"] = params.created_from.isoformat()
-            if params.created_to:   create_range["lte"] = params.created_to.isoformat()
-            filters.append({"range": {"created_at": create_range}})
+            created_range: Dict[str, Any] = {}
+            if params.created_from:
+                created_range["gte"] = params.created_from.isoformat()
+            if params.created_to:
+                created_range["lte"] = params.created_to.isoformat()
+            filters.append({"range": {"created_at": created_range}})
 
         if params.modified_from or params.modified_to:
             modified_range: Dict[str, Any] = {}
-            if params.modified_from: modified_range["gte"] = params.modified_from.isoformat()
-            if params.modified_to:   modified_range["lte"] = params.modified_to.isoformat()
+            if params.modified_from:
+                modified_range["gte"] = params.modified_from.isoformat()
+            if params.modified_to:
+                modified_range["lte"] = params.modified_to.isoformat()
             filters.append({"range": {"modified_at": modified_range}})
 
-        bool_q: Dict[str, Any] = { "should": should, "minimum_should_match": 1}
+        bool_q: Dict[str, Any] = {
+            "should": should,
+            "minimum_should_match": 1
+        }
         if filters:
             bool_q["filter"] = filters
 
@@ -131,16 +119,23 @@ class DSLSmartSolutionDslBuilder(DslBuilder):
                 "extension", "created_at", "modified_at",
                 "filesize"
             ],
-            "query": {"bool": bool_q},
-            
+            "query": {
+                "bool": bool_q
+            },
             "highlight": {
                 "pre_tags": ["<mark>"],
                 "post_tags": ["</mark>"],
                 "require_field_match": False,
                 "fields": {
                     "filename": {"number_of_fragments": 0},
+                    "filename.noun": {"number_of_fragments": 0}
                 }
             },
-            "sort": [{"modified_at": {"order": "desc"}}] if params.sort == "RECENCY" else [{"_score": {"order": "desc"}}],
+            "sort": (
+                [{"modified_at": {"order": "desc"}}]
+                if params.sort == "RECENCY"
+                else [{"_score": {"order": "desc"}}]
+            )
         }
+
         return dsl
