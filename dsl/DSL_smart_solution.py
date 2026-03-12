@@ -64,7 +64,7 @@ class DSLSmartSolutionDslBuilder(DslBuilder):
                     "type": "cross_fields",
                     "fields": filename_fields,
                     "operator": "or",
-                    "minimum_should_match": "2<-25% 6<-40%",
+                    "minimum_should_match": "2<-35% 6<-40%",
                     "boost": 1.0
                 }
             })

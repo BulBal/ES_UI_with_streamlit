@@ -278,12 +278,11 @@ if st.session_state.get("should_search", False):
             for h in hits:
                 rows.append({
                     "filename": h.filename,
-                    "score": h.score,
-                    "path_real": h.path_real,
                     "extension": h.extension,
                     "created_at": h.created_at,
                     "modified_at": h.modified_at,
                     "filesize_bytes": h.filesize_bytes,
+                    "path_virtual": h.path_virtual,
                     "id": h.id,
                 })
             result_df = pd.DataFrame(rows)
@@ -305,11 +304,26 @@ if st.session_state.get("should_search", False):
                 st.caption("※ ES 정렬과 무관, 화면에서만 정렬")
 
             # ✅ CSV처럼 보이게: 전체 폭 + 스크롤
+            # 테이블 행의 높이를 조절하기 위한 변수
+            table_height = min(1000, 80 + len(result_df) * 35)
+
             st.dataframe(
                 result_df,
                 use_container_width=True,
                 hide_index=True,
-            )       
+                height=table_height,
+            )
+            new_page = render_pagination(
+                total=total,
+                page=int(st.session_state.page),
+                size=int(st.session_state.size),
+                window=7,
+            )
+
+            if new_page != int(st.session_state.page):
+                st.session_state.page = new_page
+                st.session_state.should_search = True
+                st.rerun()       
     #     else:
             ### 검색 결과 UI 설계
             # for h in hits:
