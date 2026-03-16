@@ -88,6 +88,15 @@ EXTENSION_HELP = """
 **5. 기타**
 - `*.old`
 """
+def normalize_search_params() -> tuple[str, list[str] | None]:
+    target_mode = st.session_state.target_mode
+    raw_extension = st.session_state.get("raw_extension", "")
+
+    if target_mode == "DIR_ONLY":
+        return target_mode, None
+
+    return target_mode, parse_extensions(raw_extension)
+
 def parse_extensions(ext_str: str) -> list[str]:
     if not ext_str:
         return []
@@ -268,8 +277,7 @@ with st.sidebar:
         disabled=(target_mode == "DIR_ONLY"),
         help="폴더만 검색에서는 확장자 필터를 사용하지 않습니다." if target_mode == "DIR_ONLY" else EXTENSION_HELP,
     )
-    
-    extension = None if target_mode == "DIR_ONLY" else parse_extensions(raw_extension)
+
 
     st.subheader("생성일 필터")
     c1, c2 = st.columns(2)
@@ -292,6 +300,7 @@ with st.sidebar:
 
 if st.session_state.get("should_search", False):
     selected_index = st.session_state.get(IDX_KEY, cfg.es_default_index)
+    target_mode, extension = normalize_search_params()
     
     builder = dsl_registry.get(selected_index)
     params = SearchParams(
