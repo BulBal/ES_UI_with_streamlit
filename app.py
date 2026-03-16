@@ -166,6 +166,21 @@ st.set_page_config(page_title="ES Search (Streamlit)", layout="wide")
 st.title("문서 검색 (Streamlit)")
 st.caption("UI는 app.py에, DSL/ES 호출은 모듈로 분리")
 
+
+# -----------------------------
+# 기본 session 초기화
+# -----------------------------
+if "size" not in st.session_state:
+    st.session_state.size = cfg.default_size
+if "page" not in st.session_state:
+    st.session_state.page = 1
+if "query_text" not in st.session_state:
+    st.session_state.query_text = ""
+if "target_mode" not in st.session_state:
+    st.session_state.target_mode = "ALL"
+if "raw_extension" not in st.session_state:
+    st.session_state.raw_extension = ""
+
 # -----------------------------
 # 검색 대상 / 검색창 (본문 상단)
 # -----------------------------

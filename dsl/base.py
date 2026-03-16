@@ -11,13 +11,12 @@ class SearchParams:
     page: int
     size: int
     sort: str
+    target_mode: str
     extension: Optional[list[str]]
-    target_mode: str = "ALL"   # ALL / FILE_ONLY / DIR_ONLY
     created_from: Optional[date]
     created_to: Optional[date]
     modified_from: Optional[date]
     modified_to: Optional[date]
-    selected_fields: Optional[List[str]]
 
 class DslBuilder(ABC):
     """

@@ -1,108 +1,85 @@
 from typing import Any, Dict, List, Optional
 from dsl.base import DslBuilder, SearchParams
 
-EXACT_FIELDS = {
-    "filename": [
-        ("filename.keyword", 10),
-    ]
-}
+FILENAME_TEXT_FIELDS = [
+    ("filename", 5),
+    ("filename.noun", 3),
+    ("filename.en", 2),
+]
 
-PHRASE_FIELDS = {
-    "filename": [
-        ("filename", 6),
-    ],
-    "path": [
-        ("path_recent", 3),
-    ]
-}
+PATH_TEXT_FIELDS = [
+    ("path_recent", 2),
+    ("path_real.tree", 2),
+]
 
-TEXT_FIELDS = {
-    "filename": [
-        ("filename", 5),
-        ("filename.en", 3),
-        ("filename.noun", 2),
-    ],
-    "path": [
-        ("path_recent", 3),
-        ("path_real.tree", 1),
-    ]
-}
-DEFAULT_SEARCH_FIELDS = ["filename", "path"]
+EXACT_FIELDS = [
+    ("filename.keyword", 15),
+]
+
+PHRASE_FIELDS = [
+    ("filename", 8),
+]
 
 class DSLSmartSolutionDslBuilder(DslBuilder):
     def build(self, params: SearchParams) -> Dict[str, Any]:
         page = max(1, params.page)
         size = min(max(1, params.size), 50)
         from_offset = (page - 1) * size
-        selected = params.selected_fields or DEFAULT_SEARCH_FIELDS
         q = (params.q or "").strip()
 
         should: List[Dict[str, Any]] = []
-        must_not: List[Dict[str, Any]] = []
         filters: List[Dict[str, Any]] = []
+        must_not: List[Dict[str, Any]] = []
 
-        filename_fields: List[str] = []
-        path_fields: List[str] = []
-        
-
-        # broad 검색용 필드 구성
-        for group in selected:
-            for field, boost in TEXT_FIELDS.get(group, []):
-                boosted_field = f"{field}^{boost}"
-                if group == "filename":
-                    filename_fields.append(boosted_field)
-                elif group == "path":
-                    path_fields.append(boosted_field)
+        filename_fields = [f"{field}^{boost}" for field, boost in FILENAME_TEXT_FIELDS]
+        path_fields = [f"{field}^{boost}" for field, boost in PATH_TEXT_FIELDS]
 
         # 1) exact
-        for group in selected:
-            for field, boost in EXACT_FIELDS.get(group, []):
-                should.append({
-                    "term": {
-                        field: {
-                            "value": q,
-                            "boost": boost
-                        }
-                    }
-                })
-
-        for group in selected:
-            for field, boost in PHRASE_FIELDS.get(group, []):
-                should.append({
-                    "match_phrase": {
-                        field: {
-                            "query": q,
-                            "boost": boost
-                        }
-                    }
-                })
-
-        # 2) main relevance (filename 중심)
-        if filename_fields:
+        for field, boost in EXACT_FIELDS:
             should.append({
-                "multi_match": {
-                    "query": q,
-                    "type": "best_fields",
-                    "fields": filename_fields,
-                    "tie_breaker": 0.3,
-                    "operator": "or",
-                    "minimum_should_match": "1<-35% 6<-50%",
-                    "boost": 1.0
+                "term": {
+                    field: {
+                        "value": q,
+                        "boost": boost
+                    }
                 }
             })
+
+        # 2) phrase
+        for field, boost in PHRASE_FIELDS:
+            should.append({
+                "match_phrase": {
+                    field: {
+                        "query": q,
+                        "boost": boost
+                    }
+                }
+            })
+
+        # 3) main relevance (filename 중심)
+        should.append({
+            "multi_match": {
+                "query": q,
+                "type": "best_fields",
+                "fields": filename_fields,
+                "tie_breaker": 0.3,
+                "operator": "or",
+                "minimum_should_match": "1<-35% 6<-50%",
+                "boost": 1.0
+            }
+        })
 
         # 4) path assist
-        if path_fields:
-            should.append({
-                "multi_match": {
-                    "query": q,
-                    "type": "best_fields",
-                    "fields": path_fields,
-                    "tie_breaker": 0.2,
-                    "operator": "or",
-                    "boost": 0.6
-                }
-            })
+        should.append({
+            "multi_match": {
+                "query": q,
+                "type": "best_fields",
+                "fields": path_fields,
+                "tie_breaker": 0.2,
+                "operator": "or",
+                "boost": 0.6
+            }
+        })
 
         filters: List[Dict[str, Any]] = []
         if params.target_mode == "DIR_ONLY":
