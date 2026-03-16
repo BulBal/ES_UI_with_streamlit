@@ -185,8 +185,6 @@ if "page" not in st.session_state:
     st.session_state.page = 1
 if "query_text" not in st.session_state:
     st.session_state.query_text = ""
-if "target_mode" not in st.session_state:
-    st.session_state.target_mode = "ALL"
 if "raw_extension" not in st.session_state:
     st.session_state.raw_extension = ""
 
@@ -278,6 +276,7 @@ with st.sidebar:
         help="폴더만 검색에서는 확장자 필터를 사용하지 않습니다." if target_mode == "DIR_ONLY" else EXTENSION_HELP,
     )
 
+    extension = None if target_mode == "DIR_ONLY" else parse_extensions(raw_extension)
 
     st.subheader("생성일 필터")
     c1, c2 = st.columns(2)
@@ -295,13 +294,9 @@ with st.sidebar:
         modified_from = None
         modified_to = None
 
-
-
-
 if st.session_state.get("should_search", False):
     selected_index = st.session_state.get(IDX_KEY, cfg.es_default_index)
-    target_mode, extension = normalize_search_params()
-    
+
     builder = dsl_registry.get(selected_index)
     params = SearchParams(
         q=st.session_state.query_text.strip(),
