@@ -185,6 +185,8 @@ if "page" not in st.session_state:
     st.session_state.page = 1
 if "query_text" not in st.session_state:
     st.session_state.query_text = ""
+if "target_mode" not in st.session_state:
+    st.session_state.target_mode = "ALL"
 if "raw_extension" not in st.session_state:
     st.session_state.raw_extension = ""
 
@@ -275,7 +277,7 @@ with st.sidebar:
         disabled=(target_mode == "DIR_ONLY"),
         help="폴더만 검색에서는 확장자 필터를 사용하지 않습니다." if target_mode == "DIR_ONLY" else EXTENSION_HELP,
     )
-
+    
     extension = None if target_mode == "DIR_ONLY" else parse_extensions(raw_extension)
 
     st.subheader("생성일 필터")
@@ -294,6 +296,9 @@ with st.sidebar:
         modified_from = None
         modified_to = None
 
+
+
+
 if st.session_state.get("should_search", False):
     selected_index = st.session_state.get(IDX_KEY, cfg.es_default_index)
 
@@ -304,7 +309,7 @@ if st.session_state.get("should_search", False):
         size=int(st.session_state.size),
         sort=sort,
         extension=extension,
-        target_mode=st.session_state.target_mode,
+        target_mode=target_mode,
         created_from=created_from,
         created_to=created_to,
         modified_from=modified_from,

@@ -110,6 +110,7 @@ class DSLSmartSolutionDslBuilder(DslBuilder):
 
         bool_q: Dict[str, Any] = {
             "should": should,
+            "must_not": must_not,
             "minimum_should_match": 1
         }
         if filters:
