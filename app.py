@@ -190,6 +190,7 @@ target_mode = st.radio(
     index = 0,
     format_func=lambda k: label_by_target.get(k, k),
     horizontal=True,
+    key="target_mode",
 )
 
 # 검색창 기능 
@@ -260,23 +261,15 @@ with st.sidebar:
 
     st.divider()
 
-    if st.session_state.target_mode == "DIR_ONLY":
-        st.text_input(
-            "확장자",
-            value="",
-            disabled=True,
-            help="폴더만 검색에서는 확장자 필터를 사용하지 않습니다."
-        )
-        raw_extension = ""
-        extension = None
-    else:
-        raw_extension = st.text_input(
-            "확장자",
-            placeholder="pdf, docx, pptx ...",
-            help=EXTENSION_HELP,
-            key="raw_extension"
-        )
-        extension = parse_extensions(raw_extension)
+    raw_extension = st.text_input(
+        "확장자",
+        placeholder="pdf, docx, pptx ...",
+        key="raw_extension",
+        disabled=(target_mode == "DIR_ONLY"),
+        help="폴더만 검색에서는 확장자 필터를 사용하지 않습니다." if target_mode == "DIR_ONLY" else EXTENSION_HELP,
+    )
+    
+    extension = None if target_mode == "DIR_ONLY" else parse_extensions(raw_extension)
 
     st.subheader("생성일 필터")
     c1, c2 = st.columns(2)

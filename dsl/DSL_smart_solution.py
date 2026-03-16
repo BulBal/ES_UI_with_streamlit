@@ -2,22 +2,22 @@ from typing import Any, Dict, List, Optional
 from dsl.base import DslBuilder, SearchParams
 
 FILENAME_TEXT_FIELDS = [
-    ("filename", 5),
-    ("filename.noun", 3),
-    ("filename.en", 2),
+    ("filename", 6),
+    ("filename.noun", 2),
+    ("filename.en", 1.5),
 ]
 
 PATH_TEXT_FIELDS = [
-    ("path_recent", 2),
-    ("path_real.tree", 2),
+    ("path_recent", 1.2),
+    ("path_real.tree", 0.8),
 ]
 
 EXACT_FIELDS = [
-    ("filename.keyword", 15),
+    ("filename.keyword", 40),
 ]
 
 PHRASE_FIELDS = [
-    ("filename", 8),
+    ("filename", 16.0),
 ]
 
 class DSLSmartSolutionDslBuilder(DslBuilder):
