@@ -6,6 +6,7 @@ from typing import List, Optional
 import streamlit as st
 import requests
 import pandas as pd
+import re
 
 from core.config import load_config
 from core.es_client import EsClient
@@ -83,6 +84,20 @@ EXTENSION_HELP = """
 **5. 기타**
 - `*.old`
 """
+def parse_extensions(ext_str: str) -> list[str]:
+    if not ext_str:
+        return []
+
+    parts = re.split(r"[,\s;/|]+", ext_str.lower())
+    cleaned = []
+
+    for p in parts:
+        p = p.strip().lstrip(".")
+        if p:
+            cleaned.append(p)
+
+    # 중복 제거 + 입력 순서 유지
+    return list(dict.fromkeys(cleaned))
 
 def apply_ui_sort(df: pd.DataFrame, sort_col: str, ascending: bool) -> pd.DataFrame:
     """
@@ -194,7 +209,9 @@ with st.sidebar:
     sort = st.selectbox("정렬", ["RELEVANCE", "RECENCY"], 0)
 
     st.divider()
-    extension = st.text_input("확장자", placeholder="pdf / docx / pptx ...", help= EXTENSION_HELP ).strip() or None
+    raw_extension = st.text_input("확장자", placeholder="pdf, docx , pptx ...", help= EXTENSION_HELP )
+    extension_list = parse_extensions(raw_extension)
+    extension = extension_list[0] if extension_list else None
 
     st.subheader("생성일 필터")
     c1, c2 = st.columns(2)

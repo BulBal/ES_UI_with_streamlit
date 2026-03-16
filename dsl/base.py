@@ -11,7 +11,7 @@ class SearchParams:
     page: int
     size: int
     sort: str
-    extension: Optional[str]
+    extension: Optional[list[str]]
     created_from: Optional[date]
     created_to: Optional[date]
     modified_from: Optional[date]

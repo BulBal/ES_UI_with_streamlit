@@ -1,15 +1,31 @@
 from typing import Any, Dict, List, Optional
 from dsl.base import DslBuilder, SearchParams
 
-FIELD_TO_ES = {
+EXACT_FIELDS = {
     "filename": [
-        "filename",
-        "filename.en"
+        ("filename.keyword", 10),
+    ]
+}
+
+PHRASE_FIELDS = {
+    "filename": [
+        ("filename", 6),
     ],
     "path": [
-        "path_recent",
-        "path_real.tree"
+        ("path_recent", 3),
+    ]
+}
+
+TEXT_FIELDS = {
+    "filename": [
+        ("filename", 5),
+        ("filename.en", 3),
+        ("filename.noun", 2),
     ],
+    "path": [
+        ("path_recent", 3),
+        ("path_real.tree", 1),
+    ]
 }
 DEFAULT_SEARCH_FIELDS = ["filename", "path"]
 
@@ -18,58 +34,61 @@ class DSLSmartSolutionDslBuilder(DslBuilder):
         page = max(1, params.page)
         size = min(max(1, params.size), 50)
         from_offset = (page - 1) * size
-
         selected = params.selected_fields or DEFAULT_SEARCH_FIELDS
         q = (params.q or "").strip()
+
+        should: List[Dict[str, Any]] = []
 
         filename_fields: List[str] = []
         path_fields: List[str] = []
 
-        for k in selected:
-            if k == "filename":
-                filename_fields.extend(FIELD_TO_ES.get("filename", []))
-            elif k == "path":
-                path_fields.extend(FIELD_TO_ES.get("path", []))
-
-        if not filename_fields and not path_fields:
-            filename_fields = FIELD_TO_ES["filename"]
-
-        should: List[Dict[str, Any]] = []
+        # broad 검색용 필드 구성
+        for group in selected:
+            for field, boost in TEXT_FIELDS.get(group, []):
+                boosted_field = f"{field}^{boost}"
+                if group == "filename":
+                    filename_fields.append(boosted_field)
+                elif group == "path":
+                    path_fields.append(boosted_field)
 
         # 1) exact
-        if "filename" in selected or not selected:
-            should.append({
-                "term": {
-                    "filename.keyword": {
-                        "value": q,
-                        "boost": 15
+        for group in selected:
+            for field, boost in EXACT_FIELDS.get(group, []):
+                should.append({
+                    "term": {
+                        field: {
+                            "value": q,
+                            "boost": boost
+                        }
                     }
-                }
-            })
+                })
 
-            should.append({
-                "match_phrase": {
-                    "filename": {
-                        "query": q,
-                        "boost": 8
+        for group in selected:
+            for field, boost in PHRASE_FIELDS.get(group, []):
+                should.append({
+                    "match_phrase": {
+                        field: {
+                            "query": q,
+                            "boost": boost
+                        }
                     }
-                }
-            })
+                })
 
         # 2) main relevance (filename 중심)
         if filename_fields:
             should.append({
                 "multi_match": {
                     "query": q,
-                    "type": "cross_fields",
+                    "type": "best_fields",
                     "fields": filename_fields,
+                    "tie_breaker": 0.3,
                     "operator": "or",
-                    "minimum_should_match": "2<-35% 6<-40%",
+                    "minimum_should_match": "2<-45% 6<-50%",
                     "boost": 1.0
                 }
             })
 
-        # 3) path assist
+        # 4) path assist
         if path_fields:
             should.append({
                 "multi_match": {
@@ -77,15 +96,15 @@ class DSLSmartSolutionDslBuilder(DslBuilder):
                     "type": "best_fields",
                     "fields": path_fields,
                     "tie_breaker": 0.2,
-                    "minimum_should_match": "60%",
-                    "boost": 0.7
+                    "operator": "or",
+                    "boost": 0.6
                 }
             })
 
         filters: List[Dict[str, Any]] = []
 
         if params.extension:
-            filters.append({"term": {"extension": params.extension.lower()}})
+            filters.append({"terms": {"extension": params.extension}})
 
         if params.created_from or params.created_to:
             created_range: Dict[str, Any] = {}
