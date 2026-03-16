@@ -12,6 +12,7 @@ class SearchParams:
     size: int
     sort: str
     extension: Optional[list[str]]
+    target_mode: str = "ALL"   # ALL / FILE_ONLY / DIR_ONLY
     created_from: Optional[date]
     created_to: Optional[date]
     modified_from: Optional[date]

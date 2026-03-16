@@ -38,9 +38,12 @@ class DSLSmartSolutionDslBuilder(DslBuilder):
         q = (params.q or "").strip()
 
         should: List[Dict[str, Any]] = []
+        must_not: List[Dict[str, Any]] = []
+        filters: List[Dict[str, Any]] = []
 
         filename_fields: List[str] = []
         path_fields: List[str] = []
+        
 
         # broad 검색용 필드 구성
         for group in selected:
@@ -83,7 +86,7 @@ class DSLSmartSolutionDslBuilder(DslBuilder):
                     "fields": filename_fields,
                     "tie_breaker": 0.3,
                     "operator": "or",
-                    "minimum_should_match": "2<-45% 6<-50%",
+                    "minimum_should_match": "1<-35% 6<-50%",
                     "boost": 1.0
                 }
             })
@@ -102,9 +105,15 @@ class DSLSmartSolutionDslBuilder(DslBuilder):
             })
 
         filters: List[Dict[str, Any]] = []
+        if params.target_mode == "DIR_ONLY":
+            filters.append({"term": {"extension": "__dir__"}})
+        elif params.target_mode == "FILE_ONLY":
+            must_not.append({"term": {"extension": "__dir__"}})
 
-        if params.extension:
+        # 6) extension
+        if params.extension and params.target_mode != "DIR_ONLY":
             filters.append({"terms": {"extension": params.extension}})
+
 
         if params.created_from or params.created_to:
             created_range: Dict[str, Any] = {}

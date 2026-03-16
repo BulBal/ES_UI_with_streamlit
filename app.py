@@ -18,10 +18,14 @@ cfg = load_config()
 es = EsClient(cfg)
 dsl_registry = DslRegistry()
 
-SEARCH_FIELD_OPTIONS = [
-    ("filename", "파일명"),
-    ("path", "경로(하위 포함)"),
+SEARCH_TARGET_OPTIONS = [
+    ("ALL", "전체"),
+    ("FILE_ONLY", "파일만"),
+    ("DIR_ONLY", "폴더만"),
 ]
+
+label_by_target = dict(SEARCH_TARGET_OPTIONS)
+target_keys = list(label_by_target.keys())
 
 EXTENSION_HELP = """
 ### 지원 확장자 목록
@@ -162,6 +166,38 @@ st.set_page_config(page_title="ES Search (Streamlit)", layout="wide")
 st.title("문서 검색 (Streamlit)")
 st.caption("UI는 app.py에, DSL/ES 호출은 모듈로 분리")
 
+# -----------------------------
+# 검색 대상 / 검색창 (본문 상단)
+# -----------------------------
+target_mode = st.radio(
+    "검색 대상 필드 선택",
+    options=target_keys,
+    index = 0,
+    format_func=lambda k: label_by_target.get(k, k),
+    horizontal=True,
+)
+
+# 검색창 기능 
+st.text_input("검색어(자연어) 입력", placeholder="예: 25년도 회계 장부 ", key="query_text")
+colA, colB, _ = st.columns([1, 1, 6])
+
+if colA.button("검색", type="primary", use_container_width=True):
+    if not st.session_state.query_text.strip():
+        st.warning("검색어를 입력해줘.")
+        st.stop()
+    st.session_state.should_search = True
+    st.session_state.page = 1
+def reset_search_state(keep_keys: None):
+    keep_keys = keep_keys or []
+    keep ={k: st.session_state.get(k) for k in keep_keys if k in st.session_state}
+    st.session_state.clear()
+    for k, v in keep.items():
+        st.session_state[k] = v
+
+if colB.button("초기화", use_container_width=True):
+    reset_search_state(keep_keys=["selected_index", "size", "target_mode"])
+    st.rerun()
+
 with st.sidebar:
     st.subheader("검색 가능한 인덱스")
 
@@ -171,7 +207,6 @@ with st.sidebar:
         st.caption(f"총 {len(idx_list)}개")
 
         index_options = idx_list if idx_list else [cfg.es_default_index]
-
         # 이전 선택 복구(목록에 없으면 기본값)
         prev_selected = st.session_state.get(IDX_KEY, cfg.es_default_index)
         if prev_selected not in index_options:
@@ -209,9 +244,24 @@ with st.sidebar:
     sort = st.selectbox("정렬", ["RELEVANCE", "RECENCY"], 0)
 
     st.divider()
-    raw_extension = st.text_input("확장자", placeholder="pdf, docx , pptx ...", help= EXTENSION_HELP )
-    extension_list = parse_extensions(raw_extension)
-    extension = extension_list[0] if extension_list else None
+
+    if st.session_state.target_mode == "DIR_ONLY":
+        st.text_input(
+            "확장자",
+            value="",
+            disabled=True,
+            help="폴더만 검색에서는 확장자 필터를 사용하지 않습니다."
+        )
+        raw_extension = ""
+        extension = None
+    else:
+        raw_extension = st.text_input(
+            "확장자",
+            placeholder="pdf, docx, pptx ...",
+            help=EXTENSION_HELP,
+            key="raw_extension"
+        )
+        extension = parse_extensions(raw_extension)
 
     st.subheader("생성일 필터")
     c1, c2 = st.columns(2)
@@ -230,42 +280,7 @@ with st.sidebar:
         modified_to = None
 
 
-# 검색 대상 필드 기능 
-label_by_key = dict(SEARCH_FIELD_OPTIONS)
-keys = list(label_by_key.keys())
 
-ms_key = "ui_selected_fields"
-prev_fields = st.session_state.get(ms_key, ["filename", "path"])
-prev_fields = [x for x in prev_fields if x in keys] or [ "filename", "path"]
-
-selected_fields = st.multiselect(
-    "검색 대상 필드",
-    options=keys,
-    default=prev_fields,
-    format_func=lambda k: label_by_key.get(k, k),
-    key=ms_key
-)
-
-# 검색창 기능 
-st.text_input("검색어(자연어) 입력", placeholder="예: 25년도 회계 장부 ", key="query_text")
-colA, colB, _ = st.columns([1, 1, 6])
-
-if colA.button("검색", type="primary", use_container_width=True):
-    if not st.session_state.query_text.strip():
-        st.warning("검색어를 입력해줘.")
-        st.stop()
-    st.session_state.should_search = True
-    st.session_state.page = 1
-def reset_search_state(keep_keys: None):
-    keep_keys = keep_keys or []
-    keep ={k: st.session_state.get(k) for k in keep_keys if k in st.session_state}
-    st.session_state.clear()
-    for k, v in keep.items():
-        st.session_state[k] = v
-
-if colB.button("초기화", use_container_width=True):
-    reset_search_state(keep_keys=[IDX_KEY, "size", "page"])
-    st.rerun()
 
 if st.session_state.get("should_search", False):
     selected_index = st.session_state.get(IDX_KEY, cfg.es_default_index)
@@ -277,11 +292,11 @@ if st.session_state.get("should_search", False):
         size=int(st.session_state.size),
         sort=sort,
         extension=extension,
+        target_mode=st.session_state.target_mode,
         created_from=created_from,
         created_to=created_to,
         modified_from=modified_from,
         modified_to=modified_to,
-        selected_fields=selected_fields
     )
     dsl = builder.build(params)
 
