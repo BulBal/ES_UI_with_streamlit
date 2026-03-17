@@ -88,6 +88,24 @@ EXTENSION_HELP = """
 **5. 기타**
 - `*.old`
 """
+def human_readable_size(num_bytes: int | float | None) -> str:
+    if num_bytes is None:
+        return ""
+    try:
+        size = float(num_bytes)
+    except (TypeError, ValueError):
+        return ""
+
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(size)} {unit}"
+            return f"{size:.1f} {unit}"
+        size /= 1024
+
+    return ""
+
 def normalize_search_params() -> tuple[str, list[str] | None]:
     target_mode = st.session_state.target_mode
     raw_extension = st.session_state.get("raw_extension", "")
@@ -320,21 +338,39 @@ if st.session_state.get("should_search", False):
     with st.expander("전송 DSL 보기", expanded=False):
         st.code(json.dumps(dsl, ensure_ascii=False, indent=2), language="json")
 
+    test_mode = True
+
     try:
         with st.spinner("Elasticsearch 검색 중..."):
             total, hits = es.search(selected_index, dsl)
             rows = []
-            for h in hits:
-                rows.append({
-                    "filename": h.filename,
-                    "extension": h.extension,
-                    "created_at": h.created_at,
-                    "modified_at": h.modified_at,
-                    "filesize_bytes": h.filesize_bytes,
-                    "path_virtual": h.path_virtual,
-                    "id": h.id,
-                })
+            if test_mode:
+                for h in hits :
+                    rows.append({
+                        "filename": h.filename,
+                        "extension": h.extension,
+                        "created_at": h.created_at,
+                        "modified_at": h.modified_at,
+                        "filesize_bytes": h.filesize_bytes,
+                        "path_virtual": h.path_virtual,
+                        "id": h.id,
+                    })
+            else:
+                for h in hits:
+                    rows.append({
+                        "filename": h.filename,
+                        "extension": h.extension,
+                        "created_at": h.created_at,
+                        "modified_at": h.modified_at,
+                        "filesize_bytes": h.filesize_bytes,
+                        "path_virtual": h.path_virtual,
+                    })
+
             result_df = pd.DataFrame(rows)
+            for col in ["created_at", "modified_at"]:
+                result_df[col] = pd.to_datetime(result_df[col], errors="coerce").dt.floor("min")
+            result_df["filesize"] = result_df["filesize_bytes"].apply(human_readable_size)
+            
         st.success(f"총 {total}건")
         if not hits:
             st.info("검색 결과가 없습니다.")
@@ -354,13 +390,47 @@ if st.session_state.get("should_search", False):
 
             # ✅ CSV처럼 보이게: 전체 폭 + 스크롤
             # 테이블 행의 높이를 조절하기 위한 변수
-            table_height = min(1000, 80 + len(result_df) * 35)
+            max_filename_len = (
+                result_df["filename"].fillna("").astype(str).map(len).max()
+                if not result_df.empty else 10
+            )
+            filename_width = min(max(160, max_filename_len * 9), 700)
+            table_height = min(900, 80 + len(result_df) * 35)
 
             st.dataframe(
                 result_df,
                 use_container_width=True,
                 hide_index=True,
                 height=table_height,
+                column_config={
+                    "filename": st.column_config.Column(
+                        "filename",
+                        width=filename_width,
+                    ),
+                    "created_at": st.column_config.DatetimeColumn(
+                        "created_at",
+                        format="YYYY-MM-DD HH:mm",
+                        width=160,
+                    ),
+                    "modified_at": st.column_config.DatetimeColumn(
+                        "modified_at",
+                        format="YYYY-MM-DD HH:mm",
+                        width=160,
+                    ),
+                    "extension": st.column_config.Column(
+                        "extension",
+                        width="small",
+                    ),
+                    "filesize_bytes": st.column_config.NumberColumn(
+                        "filesize_bytes",
+                        width="small",
+                        format="%d",
+                    ),
+                    "path_virtual": st.column_config.Column(
+                        "path_virtual",
+                        width="large",
+                    ),
+        },
             )
             new_page = render_pagination(
                 total=total,
