@@ -375,30 +375,26 @@ if st.session_state.get("should_search", False):
         if not hits:
             st.info("검색 결과가 없습니다.")
         else:
-            # ✅ 정렬 UI (컬럼 선택 + 오름/내림)
-            # ES 정렬과 별개로, 화면에서만 정렬을 제공
-            sort_candidates = [c for c in result_df.columns if c not in ("doc_id",)]  # doc_id는 보통 정렬 필요 없음
-            c1, c2, c3 = st.columns([3, 2, 2])
-
-            with c1:
-                sort_col = st.selectbox("정렬 기준 컬럼(UI)", options=sort_candidates, index=0, key="ui_sort_col")
-            with c2:
-                ascending = st.toggle("오름차순", value=True, key="ui_sort_asc")  # False면 내림차순
-            with c3:
-                # 버튼 방식이 필요하면 toggle 대신 버튼 2개로 바꿔도 됨
-                st.caption("※ ES 정렬과 무관, 화면에서만 정렬")
+            display_df = result_df[[
+                "filename",
+                "extension",
+                "created_at",
+                "modified_at",
+                "filesize",
+                "path_virtual",
+            ]]
 
             # ✅ CSV처럼 보이게: 전체 폭 + 스크롤
             # 테이블 행의 높이를 조절하기 위한 변수
             max_filename_len = (
-                result_df["filename"].fillna("").astype(str).map(len).max()
-                if not result_df.empty else 10
+                display_df["filename"].fillna("").astype(str).map(len).max()
+                if not display_df.empty else 10
             )
-            filename_width = min(max(160, max_filename_len * 9), 700)
-            table_height = min(900, 80 + len(result_df) * 35)
+            filename_width = int(min(max(160, max_filename_len * 9), 700))
+            table_height = min(900, 80 + len(display_df) * 35)
 
             st.dataframe(
-                result_df,
+                display_df,
                 use_container_width=True,
                 hide_index=True,
                 height=table_height,
@@ -421,16 +417,15 @@ if st.session_state.get("should_search", False):
                         "extension",
                         width="small",
                     ),
-                    "filesize_bytes": st.column_config.NumberColumn(
-                        "filesize_bytes",
+                    "filesize": st.column_config.Column(
+                        "filesize",
                         width="small",
-                        format="%d",
                     ),
                     "path_virtual": st.column_config.Column(
                         "path_virtual",
                         width="large",
                     ),
-        },
+                },
             )
             new_page = render_pagination(
                 total=total,
@@ -443,55 +438,6 @@ if st.session_state.get("should_search", False):
                 st.session_state.page = new_page
                 st.session_state.should_search = True
                 st.rerun()       
-    #     else:
-            ### 검색 결과 UI 설계
-            # for h in hits:
-            #     with st.container(border=True):
-            #         # 1) 파일명 (강조)
-            #         st.markdown(f"**📄 {h.filename or '(제목 없음)'}**")
-
-            #         # 2) 요약 경로 (여기서는 그냥 그대로 출력 — 요약 로직은 나중에)
-            #         st.caption(h.path_virtual or h.path_real or "-")
-
-            #         # 3) 핵심 메타정보 + score (4칸 고정)
-            #         c1, c2, c3, c4 = st.columns([3, 2, 2, 2])
-            #         c1.markdown(f"**수정일**: `{h.modified_at or '-'}`")
-            #         c2.markdown(f"**확장자**: `{h.extension or '-'}`")
-            #         c3.markdown(f"**크기**: `{(str(h.filesize_bytes) + ' bytes') if h.filesize_bytes is not None else '-'}`")
-            #         c4.markdown(f"**score**: `{f'{h.score:.2f}' if h.score is not None else '-'}`")
-            # for h in hits:
-            #     with st.container(border=True):
-            #         top = st.columns([5, 2, 2, 1])
-            #         top[0].markdown(f"### {h.filename or '(제목 없음)'}")
-            #         top[1].markdown(f"**확장자**: `{h.extension or '-'}`")
-            #         top[2].markdown(f"**크기**: `{h.filesize_bytes:,} bytes`")
-            #         top[3].markdown(f"**score**: `{h.score:.2f}`")
-
-            #         meta = st.columns([4, 6])
-            #         meta[0].markdown(f"**파일명**: `{h.filename}`")
-            #         meta[0].markdown(f"**created**: `{h.created_at}`")
-            #         meta[0].markdown(f"**modified**: `{h.modified_at}`")
-            #         meta[1].markdown(f"**path_virtual**: `{h.path_virtual}`")
-            #         meta[1].markdown(f"**path_real**: `{h.path_real}`")
-
-            #         snippets: List[str] = (
-            #             h.highlights.get("title")
-            #             or h.highlights.get("filename")
-            #             or h.highlights.get("body")
-            #             or []
-            #         )
-            #         if snippets:
-            #             st.markdown("**하이라이트**")
-            #             for s in snippets:
-            #                 st.markdown(f"- {s}", unsafe_allow_html=True)
-            #         else:
-            #             st.caption("하이라이트가 없으면 analyzer/쿼리 조건에 따라 발생할 수 있어.")
-
-        # new_page = render_pagination(total, int(st.session_state.page), int(st.session_state.size))
-        # if new_page != int(st.session_state.page):
-        #     st.session_state.page = new_page
-        #     st.session_state.should_search = True
-        #     st.rerun()
 
     except requests.exceptions.SSLError as e:
         st.error("SSL 오류: self-signed 가능성")
