@@ -4,6 +4,7 @@ from datetime import date
 from typing import List, Optional
 
 import streamlit as st
+from st_copy_to_clipboard import st_copy_to_clipboard
 import requests
 import pandas as pd
 import re
@@ -89,6 +90,8 @@ EXTENSION_HELP = """
 **5. 기타**
 - `*.old`
 """
+
+# bytes 단위 표현용 함수
 def human_readable_size(num_bytes: int | float | None) -> str:
     if num_bytes is None:
         return ""
@@ -107,6 +110,7 @@ def human_readable_size(num_bytes: int | float | None) -> str:
 
     return ""
 
+# 검색모드
 def normalize_search_params() -> tuple[str, list[str] | None]:
     target_mode = st.session_state.target_mode
     raw_extension = st.session_state.get("raw_extension", "")
@@ -116,6 +120,7 @@ def normalize_search_params() -> tuple[str, list[str] | None]:
 
     return target_mode, parse_extensions(raw_extension)
 
+# 확장자 입력창 파싱 함수
 def parse_extensions(ext_str: str) -> list[str]:
     if not ext_str:
         return []
@@ -192,8 +197,6 @@ def fetch_accessible_indices() -> List[str]:
 
 st.set_page_config(page_title="ES Search (Streamlit)", layout="wide")
 st.title("문서 검색 (Streamlit)")
-st.caption("UI는 app.py에, DSL/ES 호출은 모듈로 분리")
-
 
 # -----------------------------
 # 기본 session 초기화
@@ -222,7 +225,7 @@ target_mode = st.radio(
 )
 
 # 검색창 기능 
-st.text_input("검색어(자연어) 입력", placeholder="예: 25년도 회계 장부 ", key="query_text")
+st.text_input("검색어(자연어) 입력", placeholder="예: PDX 성능 테스트 ", key="query_text")
 colA, colB, _ = st.columns([1, 1, 6])
 
 if colA.button("검색", type="primary", use_container_width=True):
@@ -285,6 +288,10 @@ with st.sidebar:
     )
     
     extension = None if target_mode == "DIR_ONLY" else parse_extensions(raw_extension)
+
+    if not st.checkbox("확장자 필터 사용", value=False):
+        extension = None
+       
 
     st.subheader("생성일 필터")
     c1, c2 = st.columns(2)
@@ -379,7 +386,7 @@ if st.session_state.get("should_search", False):
                 "created_at",
                 "modified_at",
                 "filesize",
-                "path_virtual",
+                "path_real",
             ]]
 
             # ✅ CSV처럼 보이게: 전체 폭 + 스크롤
@@ -391,40 +398,71 @@ if st.session_state.get("should_search", False):
             filename_width = int(min(max(160, max_filename_len * 9), 700))
             table_height = min(900, 80 + len(display_df) * 35)
 
-            st.dataframe(
+            # 선택된 경로 표시 영역
+            selected_path = None
+
+            event = st.dataframe(
                 display_df,
                 use_container_width=True,
                 hide_index=True,
                 height=table_height,
+                on_select="rerun",
+                selection_mode="single-row",
                 column_config={
                     "filename": st.column_config.Column(
-                        "filename",
+                        "파일명",
                         width=filename_width,
                     ),
                     "created_at": st.column_config.DatetimeColumn(
-                        "created_at",
+                        "생성일",
                         format="YYYY-MM-DD HH:mm",
                         width=160,
                     ),
                     "modified_at": st.column_config.DatetimeColumn(
-                        "modified_at",
+                        "수정일",
                         format="YYYY-MM-DD HH:mm",
                         width=160,
                     ),
                     "extension": st.column_config.Column(
-                        "extension",
+                        "확장자",
                         width="small",
                     ),
                     "filesize": st.column_config.Column(
-                        "filesize",
+                        "파일 크기",
                         width="small",
                     ),
-                    "path_virtual": st.column_config.Column(
-                        "path_virtual",
+                    "path_real": st.column_config.Column(
+                        "파일 경로",
                         width="large",
                     ),
                 },
             )
+
+            # 선택된 행에서 path_real 추출
+            selected_rows = event.selection.rows if event and event.selection else []
+
+            if selected_rows:
+                row_idx = selected_rows[0]
+                selected_row = display_df.iloc[row_idx]
+                selected_path = str(selected_row.get("path_real", "") or "")
+
+            if selected_path:
+                st.markdown("#### 선택한 파일 경로")
+
+                c1, c2 = st.columns([8, 1])
+
+                with c1:
+                    # disabled=False 로 두면 사용자가 직접 드래그해서 복사도 가능
+                    st.text_input(
+                        "전체 경로",
+                        value=selected_path,
+                        key="selected_path_display",
+                        label_visibility="collapsed",
+                    )
+
+                with c2:
+                    st_copy_to_clipboard(selected_path, "복사")
+
             new_page = render_pagination(
                 total=total,
                 page=int(st.session_state.page),
