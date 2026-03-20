@@ -7,6 +7,7 @@ import streamlit as st
 import requests
 import pandas as pd
 import re
+import traceback
 
 from core.config import load_config
 from core.es_client import EsClient
@@ -270,21 +271,8 @@ with st.sidebar:
         selected_index = st.session_state.get(IDX_KEY, cfg.es_default_index)
 
     st.divider()
-    st.subheader("검색 옵션")
-    if "size" not in st.session_state:
-        st.session_state.size = cfg.default_size
-    if "page" not in st.session_state:
-        st.session_state.page = 1
 
-    size = st.number_input("페이지 크기", 1, 50, int(st.session_state.size), 1)
-    if int(size) != int(st.session_state.size):
-        st.session_state.size = int(size)
-        st.session_state.page = 1
-
-    page = st.number_input("페이지", 1, value=int(st.session_state.page), step=1)
-    st.session_state.page = int(page)
-
-    sort = st.selectbox("정렬", ["RELEVANCE", "RECENCY"], 0)
+    sort = st.selectbox("정렬", ["RELEVANCE(유사도 우선)", "RECENCY"], 0)
 
     st.divider()
 
@@ -367,9 +355,19 @@ if st.session_state.get("should_search", False):
                     })
 
             result_df = pd.DataFrame(rows)
-            for col in ["created_at", "modified_at"]:
-                result_df[col] = pd.to_datetime(result_df[col], errors="coerce").dt.floor("min")
-            result_df["filesize"] = result_df["filesize_bytes"].apply(human_readable_size)
+            if not rows:
+                pass
+            else:
+                for col in ["created_at", "modified_at"]:
+                    if col in result_df.columns:
+                        result_df[col] = pd.to_datetime(result_df[col], errors="coerce").dt.floor("min")
+                    else:
+                        result_df[col] = pd.NaT
+                if "filesize_bytes" in result_df.columns:
+                    result_df["filesize"] = result_df["filesize_bytes"].apply(human_readable_size)
+                else:
+                    result_df["filesize_bytes"] = pd.NA
+                    result_df['filesize']= ""
             
         st.success(f"총 {total}건")
         if not hits:
@@ -452,4 +450,6 @@ if st.session_state.get("should_search", False):
     except Exception as e:
         st.error("알 수 없는 오류")
         st.code(str(e))
+        # 오류 트레이싱 용
+        #st.code(traceback.format_exc())
 
