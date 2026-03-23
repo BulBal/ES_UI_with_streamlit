@@ -4,7 +4,7 @@ from datetime import date
 from typing import List, Optional
 
 import streamlit as st
-from st_copy_to_clipboard import st_copy_to_clipboard
+import pyperclip
 import requests
 import pandas as pd
 import re
@@ -333,7 +333,7 @@ if st.session_state.get("should_search", False):
     with st.expander("전송 DSL 보기", expanded=False):
         st.code(json.dumps(dsl, ensure_ascii=False, indent=2), language="json")
 
-    test_mode = True
+    test_mode = False
 
     try:
         with st.spinner("Elasticsearch 검색 중..."):
@@ -359,6 +359,7 @@ if st.session_state.get("should_search", False):
                         "modified_at": h.modified_at,
                         "filesize_bytes": h.filesize_bytes,
                         "path_virtual": h.path_virtual,
+                        "path_real" : h.path_real,
                     })
 
             result_df = pd.DataFrame(rows)
@@ -461,7 +462,13 @@ if st.session_state.get("should_search", False):
                     )
 
                 with c2:
-                    st_copy_to_clipboard(selected_path, "복사")
+                    if st.button("복사", key=f"copy_path_{row_idx}"):
+                        try:
+                            pyperclip.copy(selected_path)
+                            st.success("경로를 클립보드에 복사했습니다")
+                        except Exception as e:
+                            st.error(f"복사 실패 : {e}")
+
 
             new_page = render_pagination(
                 total=total,
