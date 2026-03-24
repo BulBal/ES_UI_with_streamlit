@@ -14,7 +14,13 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+.streamlit/
 
 # Logs
 *.log
+<<<<<<< Updated upstream
 *.toml
+=======
+
+*.yaml
+>>>>>>> Stashed changes
