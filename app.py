@@ -383,11 +383,13 @@ if st.session_state.get("should_search", False):
         else:
             display_df = result_df[[
                 "filename",
+                "path_real",
                 "extension",
+                "filesize",
                 "created_at",
                 "modified_at",
-                "filesize",
-                "path_real",
+                
+                
             ]]
 
             # ✅ CSV처럼 보이게: 전체 폭 + 스크롤
@@ -396,8 +398,15 @@ if st.session_state.get("should_search", False):
                 display_df["filename"].fillna("").astype(str).map(len).max()
                 if not display_df.empty else 10
             )
-            filename_width = int(min(max(160, max_filename_len * 9), 700))
+            max_path_len = (
+                display_df["path_real"].fillna("").astype(str).map(len).max()
+                if not display_df.empty else 20
+            )
+
+            filename_width = int(min(max(180, max_filename_len * 9), 500))
+            path_width = int(min(max(400, max_path_len * 7), 1200))
             table_height = min(900, 80 + len(display_df) * 35)
+            
 
             # 선택된 경로 표시 영역
             selected_path = None
@@ -434,7 +443,7 @@ if st.session_state.get("should_search", False):
                     ),
                     "path_real": st.column_config.Column(
                         "파일 경로",
-                        width="large",
+                        width=path_width,
                     ),
                 },
             )

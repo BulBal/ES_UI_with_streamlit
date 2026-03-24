@@ -4,7 +4,8 @@ from dsl.base import DslBuilder, SearchParams
 FILENAME_TEXT_FIELDS = [
     ("filename", 6),
     ("filename.noun", 2),
-    ("filename.en", 1.5),
+    ("filename.en", 2),
+    ("filename.en_edge", 1.2),
 ]
 
 PATH_TEXT_FIELDS = [
@@ -14,6 +15,7 @@ PATH_TEXT_FIELDS = [
 
 EXACT_FIELDS = [
     ("filename.keyword", 20),
+    
 ]
 
 PHRASE_FIELDS = [
@@ -65,7 +67,7 @@ class DSLSmartSolutionDslBuilder(DslBuilder):
                 "fields": filename_fields,
                 "tie_breaker": 0.3,
                 "operator": "or",
-                "minimum_should_match": "1<-45% 4<-35%",
+                "minimum_should_match": "1<-55% 4<-45%",
                 "boost": 1.0
             }
         })
@@ -78,7 +80,7 @@ class DSLSmartSolutionDslBuilder(DslBuilder):
                 "fields": path_fields,
                 "tie_breaker": 0.2,
                 "operator": "or",
-                "boost": 0.6
+                "boost": 0.7
             }
         })
 
