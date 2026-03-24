@@ -275,7 +275,7 @@ with st.sidebar:
 
     st.divider()
 
-    sort = st.selectbox("정렬", ["RELEVANCE(유사도 우선)", "RECENCY"], 0)
+    sort = st.selectbox("정렬", ["RELEVANCE(유사도 우선)"], 0)
 
     st.divider()
 
@@ -409,7 +409,11 @@ if st.session_state.get("should_search", False):
             
 
             # 선택된 경로 표시 영역
-            selected_path = None
+            if "selected_path_display" not in st.session_state:
+                st.session_state.selected_path_display = ""
+
+            selected_path = ""
+            row_idx = None
 
             event = st.dataframe(
                 display_df,
@@ -418,6 +422,7 @@ if st.session_state.get("should_search", False):
                 height=table_height,
                 on_select="rerun",
                 selection_mode="single-row",
+                key="result_table",
                 column_config={
                     "filename": st.column_config.Column(
                         "파일명",
@@ -455,8 +460,11 @@ if st.session_state.get("should_search", False):
                 row_idx = selected_rows[0]
                 selected_row = display_df.iloc[row_idx]
                 selected_path = str(selected_row.get("path_real", "") or "")
+                st.session_state.selected_path_display = selected_path
+            else:
+                st.session_state.selected_path_display = ""
 
-            if selected_path:
+            if st.session_state.selected_path_display:
                 st.markdown("#### 선택한 파일 경로")
 
                 c1, c2 = st.columns([8, 1])
@@ -465,15 +473,13 @@ if st.session_state.get("should_search", False):
                     # disabled=False 로 두면 사용자가 직접 드래그해서 복사도 가능
                     st.text_input(
                         "전체 경로",
-                        value=selected_path,
                         key="selected_path_display",
                         label_visibility="collapsed",
                     )
-
                 with c2:
-                    if st.button("복사", key=f"copy_path_{row_idx}"):
+                    if st.button("복사", key=f"copy_path_{row_idx if row_idx is not None else 'none'}"):
                         try:
-                            pyperclip.copy(selected_path)
+                            pyperclip.copy(st.session_state.selected_path_display)
                             st.success("경로를 클립보드에 복사했습니다")
                         except Exception as e:
                             st.error(f"복사 실패 : {e}")
