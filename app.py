@@ -8,6 +8,7 @@ import pyperclip
 import requests
 import pandas as pd
 import re
+import datetime as dt
 import traceback
 
 from core.config import load_config
@@ -293,10 +294,13 @@ with st.sidebar:
         extension = None
        
 
+    MIN_DATE = dt.date(1990,1,1)
+    MAX_DATE = dt.date.today()
+
     st.subheader("생성일 필터")
     c1, c2 = st.columns(2)
-    created_from = c1.date_input("created_from", value=None)
-    created_to = c2.date_input("created_to", value=None)
+    created_from = c1.date_input("created_from", value=None, min_value= MIN_DATE, max_value = MAX_DATE)
+    created_to = c2.date_input("created_to", value=None, min_value= MIN_DATE, max_value = MAX_DATE)
     if not st.checkbox("생성일 필터 사용", value=False):
         created_from = None
         created_to = None
