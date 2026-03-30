@@ -382,6 +382,28 @@ if st.session_state.get("should_search", False):
                     result_df['filesize']= ""
             
         st.success(f"총 {total}건")
+        st.markdown("""
+            <style>
+            /* 복사 버튼 자체 높이 축소 */
+            div[data-testid="stButton"] > button {
+                padding: 0.1rem 0.25rem;
+                min-height: 28px;
+                height: 28px;
+                line-height: 1;
+                border-radius: 8px;
+            }
+
+            /* 버튼 위젯 블록 간 세로 간격 축소 */
+            div[data-testid="stButton"] {
+                margin: 0;
+            }
+
+            /* markdown 헤더 아래 기본 여백 줄이기 */
+            div[data-testid="stMarkdownContainer"] h5 {
+                margin-bottom: 0.25rem;
+            }
+            </style>
+            """, unsafe_allow_html=True)
         if not hits:
             st.info("검색 결과가 없습니다.")
         else:
@@ -416,29 +438,24 @@ if st.session_state.get("should_search", False):
             # -----------------------------------------
             # 왼쪽: 행별 복사 버튼 / 오른쪽: 결과 테이블
             # -----------------------------------------
-            copy_col, table_col = st.columns([1, 12], vertical_alignment="top")
+            copy_col, table_col = st.columns([0.8, 12], vertical_alignment="top")
 
             with copy_col:
                 st.markdown("##### 복사")
-                st.write("")  # 헤더 높이 보정
+
+                # dataframe 헤더 높이 보정
+                st.markdown(
+                    "<div style='height: 6px;'></div>",
+                    unsafe_allow_html=True
+                )
 
                 for idx, row in display_df.reset_index(drop=True).iterrows():
                     path_value = str(row.get("path_real", "") or "")
-                    st.markdown(
-                        f"""
-                        <div style="
-                            height:35px;
-                            display:flex;
-                            align-items:center;
-                            justify-content:center;
-                        ">
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
+                
                     if st.button(
                         "📋",
                         key=f"copy_path_row_{st.session_state.page}_{idx}",
+                        width="stretch",
                         use_container_width=True,
                         disabled=(not path_value),
                         help=path_value if path_value else "경로 없음",
