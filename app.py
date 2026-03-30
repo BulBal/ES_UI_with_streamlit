@@ -424,6 +424,17 @@ if st.session_state.get("should_search", False):
 
                 for idx, row in display_df.reset_index(drop=True).iterrows():
                     path_value = str(row.get("path_real", "") or "")
+                    st.markdown(
+                        f"""
+                        <div style="
+                            height:35px;
+                            display:flex;
+                            align-items:center;
+                            justify-content:center;
+                        ">
+                        """,
+                        unsafe_allow_html=True,
+                    )
 
                     if st.button(
                         "📋",
