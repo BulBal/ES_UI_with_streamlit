@@ -4,12 +4,13 @@ from datetime import date
 from typing import List, Optional
 
 import streamlit as st
-import pyperclip
 import requests
 import pandas as pd
 import re
 import datetime as dt
 import traceback
+
+from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 
 from core.config import load_config
 from core.es_client import EsClient
@@ -212,6 +213,8 @@ if "target_mode" not in st.session_state:
     st.session_state.target_mode = "ALL"
 if "raw_extension" not in st.session_state:
     st.session_state.raw_extension = ""
+if "selected_path_display" not in st.session_state:
+    st.session_state.selected_path_display = ""
 
 # -----------------------------
 # 검색 대상 / 검색창 (본문 상단)
@@ -382,28 +385,7 @@ if st.session_state.get("should_search", False):
                     result_df['filesize']= ""
             
         st.success(f"총 {total}건")
-        st.markdown("""
-            <style>
-            /* 복사 버튼 자체 높이 축소 */
-            div[data-testid="stButton"] > button {
-                padding: 0.1rem 0.25rem;
-                min-height: 28px;
-                height: 28px;
-                line-height: 1;
-                border-radius: 8px;
-            }
 
-            /* 버튼 위젯 블록 간 세로 간격 축소 */
-            div[data-testid="stButton"] {
-                margin: 0;
-            }
-
-            /* markdown 헤더 아래 기본 여백 줄이기 */
-            div[data-testid="stMarkdownContainer"] h5 {
-                margin-bottom: 0.25rem;
-            }
-            </style>
-            """, unsafe_allow_html=True)
         if not hits:
             st.info("검색 결과가 없습니다.")
         else:
@@ -416,8 +398,9 @@ if st.session_state.get("should_search", False):
                 "modified_at",
             ]].copy()
 
-            # ✅ CSV처럼 보이게: 전체 폭 + 스크롤
-            # 테이블 행의 높이를 조절하기 위한 변수
+            # 복사 버튼 렌더러에서 사용할 값
+            display_df["copy"] = display_df["path_real"].fillna("").astype(str)
+
             max_filename_len = (
                 display_df["filename"].fillna("").astype(str).map(len).max()
                 if not display_df.empty else 10
@@ -431,99 +414,152 @@ if st.session_state.get("should_search", False):
             path_width = int(min(max(400, max_path_len * 7), 1200))
             table_height = min(900, 80 + len(display_df) * 35)
 
-            # 선택된 경로 표시 영역 초기화
-            if "selected_path_display" not in st.session_state:
+            copy_cell_renderer = JsCode("""
+            class CopyButtonRenderer {
+                init(params) {
+                    this.params = params;
+                    this.eGui = document.createElement('div');
+                    this.eGui.style.display = 'flex';
+                    this.eGui.style.justifyContent = 'center';
+                    this.eGui.style.alignItems = 'center';
+                    this.eGui.style.height = '100%';
+
+                    const button = document.createElement('button');
+                    button.innerText = '📋';
+                    button.title = params.value || '경로 없음';
+                    button.style.cursor = 'pointer';
+                    button.style.border = '1px solid #d1d5db';
+                    button.style.background = '#ffffff';
+                    button.style.borderRadius = '6px';
+                    button.style.padding = '2px 6px';
+                    button.style.fontSize = '14px';
+                    button.style.lineHeight = '1.2';
+
+                    if (!params.value) {
+                        button.disabled = true;
+                        button.style.cursor = 'not-allowed';
+                        button.style.opacity = '0.5';
+                    }
+
+                    button.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        if (!params.value) return;
+
+                        try {
+                            await navigator.clipboard.writeText(params.value);
+                            button.innerText = '✅';
+                            setTimeout(() => {
+                                button.innerText = '📋';
+                            }, 900);
+                        } catch (err) {
+                            console.error('clipboard copy failed', err);
+                            button.innerText = '❌';
+                            setTimeout(() => {
+                                button.innerText = '📋';
+                            }, 900);
+                        }
+                    });
+
+                    this.eGui.appendChild(button);
+                }
+
+                getGui() {
+                    return this.eGui;
+                }
+            }
+            """)
+
+            gb = GridOptionsBuilder.from_dataframe(display_df)
+
+            gb.configure_default_column(
+                resizable=True,
+                sortable=False,
+                filter=False,
+                wrapText=False,
+                autoHeight=False,
+            )
+
+            gb.configure_column(
+                "copy",
+                header_name="복사",
+                width=80,
+                pinned="left",
+                cellRenderer=copy_cell_renderer,
+                sortable=False,
+                filter=False,
+                suppressMenu=True,
+            )
+
+            gb.configure_column("filename", header_name="파일명", width=filename_width)
+            gb.configure_column("path_real", header_name="파일 경로", width=path_width)
+            gb.configure_column("extension", header_name="확장자", width=100)
+            gb.configure_column("filesize", header_name="파일 크기", width=110)
+            gb.configure_column(
+                "created_at",
+                header_name="생성일",
+                width=160,
+                valueFormatter="value ? new Date(value).toLocaleString('sv-SE').slice(0,16).replace('T',' ') : ''",
+            )
+            gb.configure_column(
+                "modified_at",
+                header_name="수정일",
+                width=160,
+                valueFormatter="value ? new Date(value).toLocaleString('sv-SE').slice(0,16).replace('T',' ') : ''",
+            )
+
+            gb.configure_selection(
+                selection_mode="single",
+                use_checkbox=False,
+            )
+
+            grid_options = gb.build()
+            grid_options["rowHeight"] = 35
+            grid_options["headerHeight"] = 40
+            grid_options["suppressRowClickSelection"] = False
+            grid_options["rowSelection"] = "single"
+            grid_options["domLayout"] = "normal"
+
+            grid_response = AgGrid(
+                display_df,
+                gridOptions=grid_options,
+                height=table_height,
+                width="100%",
+                allow_unsafe_jscode=True,
+                enable_enterprise_modules=False,
+                fit_columns_on_grid_load=False,
+                update_mode="SELECTION_CHANGED",
+                reload_data=False,
+                theme="streamlit",
+                key=f"aggrid_result_{st.session_state.page}",
+            )
+
+            selected_rows = grid_response.get("selected_rows", [])
+
+            if isinstance(selected_rows, pd.DataFrame):
+                selected_rows = selected_rows.to_dict("records")
+
+            if selected_rows:
+                selected_path = str(selected_rows[0].get("path_real", "") or "")
+                st.session_state.selected_path_display = selected_path
+            else:
                 st.session_state.selected_path_display = ""
 
-            # -----------------------------------------
-            # 왼쪽: 행별 복사 버튼 / 오른쪽: 결과 테이블
-            # -----------------------------------------
-            copy_col, table_col = st.columns([0.8, 12], vertical_alignment="top")
-
-            with copy_col:
-                st.markdown("##### 복사")
-
-                # dataframe 헤더 높이 보정
-                st.markdown(
-                    "<div style='height: 6px;'></div>",
-                    unsafe_allow_html=True
-                )
-
-                for idx, row in display_df.reset_index(drop=True).iterrows():
-                    path_value = str(row.get("path_real", "") or "")
-                
-                    if st.button(
-                        "📋",
-                        key=f"copy_path_row_{st.session_state.page}_{idx}",
-                        width="stretch",
-                        use_container_width=True,
-                        disabled=(not path_value),
-                        help=path_value if path_value else "경로 없음",
-                    ):
-                        try:
-                            pyperclip.copy(path_value)
-                            st.session_state.selected_path_display = path_value
-                            st.toast("경로를 클립보드에 복사했습니다.")
-                        except Exception as e:
-                            st.error(f"복사 실패 : {e}")
-
-            with table_col:
-                st.dataframe(
-                    display_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    height=table_height,
-                    key="result_table",
-                    column_config={
-                        "filename": st.column_config.Column(
-                            "파일명",
-                            width=filename_width,
-                        ),
-                        "created_at": st.column_config.DatetimeColumn(
-                            "생성일",
-                            format="YYYY-MM-DD HH:mm",
-                            width=160,
-                        ),
-                        "modified_at": st.column_config.DatetimeColumn(
-                            "수정일",
-                            format="YYYY-MM-DD HH:mm",
-                            width=160,
-                        ),
-                        "extension": st.column_config.Column(
-                            "확장자",
-                            width="small",
-                        ),
-                        "filesize": st.column_config.Column(
-                            "파일 크기",
-                            width="small",
-                        ),
-                        "path_real": st.column_config.Column(
-                            "파일 경로",
-                            width=path_width,
-                        ),
-                    },
+            if st.session_state.selected_path_display:
+                st.markdown("#### 선택한 파일 경로")
+                st.text_input(
+                    "전체 경로",
+                    key="selected_path_display",
+                    label_visibility="collapsed",
                 )
 
             # 마지막으로 복사한 경로 표시
             if st.session_state.selected_path_display:
-                st.markdown("#### 마지막으로 복사한 파일 경로")
-
-                c1, c2 = st.columns([8, 1])
-
-                with c1:
-                    st.text_input(
-                        "전체 경로",
-                        key="selected_path_display",
-                        label_visibility="collapsed",
-                    )
-
-                with c2:
-                    if st.button("한번 더 복사", key="copy_selected_path_again"):
-                        try:
-                            pyperclip.copy(st.session_state.selected_path_display)
-                            st.success("경로를 다시 클립보드에 복사했습니다")
-                        except Exception as e:
-                            st.error(f"복사 실패 : {e}")
+                st.markdown("#### 선택한 파일 경로")
+                st.text_input(
+                    "전체 경로",
+                    key="selected_path_display",
+                    label_visibility="collapsed",
+                )
 
             new_page = render_pagination(
                 total=total,
