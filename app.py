@@ -392,9 +392,7 @@ if st.session_state.get("should_search", False):
                 "filesize",
                 "created_at",
                 "modified_at",
-                
-                
-            ]]
+            ]].copy()
 
             # ✅ CSV처럼 보이게: 전체 폭 + 스크롤
             # 테이블 행의 높이를 조절하기 위한 변수
@@ -410,84 +408,94 @@ if st.session_state.get("should_search", False):
             filename_width = int(min(max(180, max_filename_len * 9), 500))
             path_width = int(min(max(400, max_path_len * 7), 1200))
             table_height = min(900, 80 + len(display_df) * 35)
-            
 
-            # 선택된 경로 표시 영역
+            # 선택된 경로 표시 영역 초기화
             if "selected_path_display" not in st.session_state:
                 st.session_state.selected_path_display = ""
 
-            selected_path = ""
-            row_idx = None
+            # -----------------------------------------
+            # 왼쪽: 행별 복사 버튼 / 오른쪽: 결과 테이블
+            # -----------------------------------------
+            copy_col, table_col = st.columns([1, 12], vertical_alignment="top")
 
-            event = st.dataframe(
-                display_df,
-                use_container_width=True,
-                hide_index=True,
-                height=table_height,
-                on_select="rerun",
-                selection_mode="single-row",
-                key="result_table",
-                column_config={
-                    "filename": st.column_config.Column(
-                        "파일명",
-                        width=filename_width,
-                    ),
-                    "created_at": st.column_config.DatetimeColumn(
-                        "생성일",
-                        format="YYYY-MM-DD HH:mm",
-                        width=160,
-                    ),
-                    "modified_at": st.column_config.DatetimeColumn(
-                        "수정일",
-                        format="YYYY-MM-DD HH:mm",
-                        width=160,
-                    ),
-                    "extension": st.column_config.Column(
-                        "확장자",
-                        width="small",
-                    ),
-                    "filesize": st.column_config.Column(
-                        "파일 크기",
-                        width="small",
-                    ),
-                    "path_real": st.column_config.Column(
-                        "파일 경로",
-                        width=path_width,
-                    ),
-                },
-            )
+            with copy_col:
+                st.markdown("##### 복사")
+                st.write("")  # 헤더 높이 보정
 
-            # 선택된 행에서 path_real 추출
-            selected_rows = event.selection.rows if event and event.selection else []
+                for idx, row in display_df.reset_index(drop=True).iterrows():
+                    path_value = str(row.get("path_real", "") or "")
 
-            if selected_rows:
-                row_idx = selected_rows[0]
-                selected_row = display_df.iloc[row_idx]
-                selected_path = str(selected_row.get("path_real", "") or "")
-                st.session_state.selected_path_display = selected_path
-            else:
-                st.session_state.selected_path_display = ""
+                    if st.button(
+                        "📋",
+                        key=f"copy_path_row_{st.session_state.page}_{idx}",
+                        use_container_width=True,
+                        disabled=(not path_value),
+                        help=path_value if path_value else "경로 없음",
+                    ):
+                        try:
+                            pyperclip.copy(path_value)
+                            st.session_state.selected_path_display = path_value
+                            st.toast("경로를 클립보드에 복사했습니다.")
+                        except Exception as e:
+                            st.error(f"복사 실패 : {e}")
 
+            with table_col:
+                st.dataframe(
+                    display_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=table_height,
+                    key="result_table",
+                    column_config={
+                        "filename": st.column_config.Column(
+                            "파일명",
+                            width=filename_width,
+                        ),
+                        "created_at": st.column_config.DatetimeColumn(
+                            "생성일",
+                            format="YYYY-MM-DD HH:mm",
+                            width=160,
+                        ),
+                        "modified_at": st.column_config.DatetimeColumn(
+                            "수정일",
+                            format="YYYY-MM-DD HH:mm",
+                            width=160,
+                        ),
+                        "extension": st.column_config.Column(
+                            "확장자",
+                            width="small",
+                        ),
+                        "filesize": st.column_config.Column(
+                            "파일 크기",
+                            width="small",
+                        ),
+                        "path_real": st.column_config.Column(
+                            "파일 경로",
+                            width=path_width,
+                        ),
+                    },
+                )
+
+            # 마지막으로 복사한 경로 표시
             if st.session_state.selected_path_display:
-                st.markdown("#### 선택한 파일 경로")
+                st.markdown("#### 마지막으로 복사한 파일 경로")
 
                 c1, c2 = st.columns([8, 1])
 
                 with c1:
-                    # disabled=False 로 두면 사용자가 직접 드래그해서 복사도 가능
                     st.text_input(
                         "전체 경로",
                         key="selected_path_display",
                         label_visibility="collapsed",
                     )
+
                 with c2:
-                    if st.button("복사", key=f"copy_path_{row_idx if row_idx is not None else 'none'}"):
+                    if st.button("한번 더 복사", key="copy_selected_path_again"):
                         try:
                             pyperclip.copy(st.session_state.selected_path_display)
-                            st.success("경로를 클립보드에 복사했습니다")
+                            st.success("경로를 다시 클립보드에 복사했습니다")
                         except Exception as e:
                             st.error(f"복사 실패 : {e}")
-
 
             new_page = render_pagination(
                 total=total,
