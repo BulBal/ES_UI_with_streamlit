@@ -228,8 +228,102 @@ target_mode = st.radio(
     key="target_mode",
 )
 
-# 검색창 기능 
-st.text_input("검색어(자연어) 입력", placeholder="예: PDX 성능 테스트 ", key="query_text")
+# 검색창 기능 (음성 입력 기능 포함)
+# 검색어 입력 부분을 왼쪽에 두고, 오른쪽에 음성 입력 버튼을 배치한다.
+search_cols = st.columns([10, 1])
+with search_cols[0]:
+    st.text_input(
+        "검색어(자연어) 입력", placeholder="예: PDX 성능 테스트 ", key="query_text"
+    )
+with search_cols[1]:
+    # 음성 입력 버튼과 on-device Web Speech API를 사용한 스크립트.
+    # 버튼을 클릭하면 브라우저의 SpeechRecognition API를 사용해 음성을 텍스트로 변환하고,
+    # 변환된 텍스트를 Streamlit 검색창의 값으로 설정합니다.
+    st.markdown(
+        """
+        <button id="voice-search-btn" type="button" style="font-size:24px; padding:4px; margin-top:22px;" title="음성으로 검색">
+            🎤
+        </button>
+        <script>
+        (function() {
+            // 부모 문서에서 검색 입력 필드를 찾습니다.
+            function getSearchInput() {
+                // placeholder 속성을 이용해 검색 입력창을 찾습니다.
+                const parentDoc = window.parent.document;
+                return parentDoc.querySelector('input[placeholder="예: PDX 성능 테스트 "]');
+            }
+            const micBtn = document.getElementById('voice-search-btn');
+            // Web Speech API 지원 여부 확인
+            window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!window.SpeechRecognition || !micBtn) {
+                if (micBtn) {
+                    micBtn.disabled = true;
+                    micBtn.title = '이 브라우저는 음성 인식을 지원하지 않습니다.';
+                }
+                return;
+            }
+            // 음성 인식 객체 생성
+            const recognition = new window.SpeechRecognition();
+            recognition.lang = 'ko-KR'; // 한국어 인식을 기본값으로 설정
+            recognition.interimResults = false;
+            recognition.continuous = false;
+            // on-device 처리 활성화 (가능한 경우)
+            try {
+                recognition.processLocally = true;
+            } catch (e) {
+                // processLocally를 지원하지 않는 환경에서는 무시
+            }
+            // 언어팩 확인 후 필요 시 설치
+            async function ensureLanguagePack() {
+                try {
+                    if (typeof window.SpeechRecognition.available === 'function') {
+                        const state = await window.SpeechRecognition.available({ langs: [recognition.lang], processLocally: true });
+                        if (state !== 'available' && typeof window.SpeechRecognition.install === 'function') {
+                            await window.SpeechRecognition.install({ langs: [recognition.lang] });
+                        }
+                    }
+                } catch (err) {
+                    console.warn('language pack check/install failed', err);
+                }
+            }
+            // 버튼 클릭 핸들러
+            micBtn.addEventListener('click', async function(e) {
+                e.preventDefault();
+                micBtn.disabled = true;
+                micBtn.textContent = '🎙️';
+                // 언어팩 준비
+                await ensureLanguagePack();
+                try {
+                    recognition.start();
+                } catch (err) {
+                    console.error('recognition start failed', err);
+                    micBtn.disabled = false;
+                    micBtn.textContent = '🎤';
+                }
+            });
+            // 음성 인식 결과 처리
+            recognition.addEventListener('result', function(event) {
+                const transcript = event.results && event.results[0] && event.results[0][0] && event.results[0][0].transcript;
+                const inputEl = getSearchInput();
+                if (inputEl && transcript) {
+                    inputEl.value = transcript.trim();
+                    // input 이벤트를 발생시켜 Streamlit에 값 변동을 알립니다.
+                    const inputEvent = new Event('input', { bubbles: true });
+                    inputEl.dispatchEvent(inputEvent);
+                }
+            });
+            // 인식 종료 시 버튼 상태 복원
+            function resetButton() {
+                micBtn.disabled = false;
+                micBtn.textContent = '🎤';
+            }
+            recognition.addEventListener('end', resetButton);
+            recognition.addEventListener('error', resetButton);
+        })();
+        </script>
+        """,
+        unsafe_allow_html=True,
+    )
 colA, colB, _ = st.columns([1, 1, 6])
 
 if colA.button("검색", type="primary", use_container_width=True):
