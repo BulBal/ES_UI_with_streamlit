@@ -236,213 +236,190 @@ with search_cols[0]:
 with search_cols[1]:
     st.markdown(
         """
-        <button id="voice-search-btn" type="button" style="font-size:24px; padding:4px; margin-top:22px;" title="음성으로 검색">
-            🎤
-        </button>
-        <script>
-        (function() {
-            const parentDoc = window.parent.document;
-
-            function getSearchInput() {
-                return parentDoc.querySelector('input[placeholder="예: PDX 성능 테스트 "]');
-            }
-
-            function getOrCreateOverlay() {
-                let overlay = parentDoc.getElementById('voice-search-overlay');
-                if (overlay) return overlay;
-
-                overlay = parentDoc.createElement('div');
-                overlay.id = 'voice-search-overlay';
-                overlay.style.position = 'fixed';
-                overlay.style.top = '16px';
-                overlay.style.left = '50%';
-                overlay.style.transform = 'translateX(-50%)';
-                overlay.style.zIndex = '999999';
-                overlay.style.minWidth = '320px';
-                overlay.style.maxWidth = '560px';
-                overlay.style.padding = '14px 18px';
-                overlay.style.borderRadius = '14px';
-                overlay.style.background = 'rgba(17, 24, 39, 0.94)';
-                overlay.style.color = '#ffffff';
-                overlay.style.boxShadow = '0 10px 30px rgba(0, 0, 0, 0.28)';
-                overlay.style.display = 'none';
-                overlay.style.alignItems = 'center';
-                overlay.style.gap = '12px';
-                overlay.style.fontFamily = 'sans-serif';
-                overlay.innerHTML = `
-                    <div id="voice-search-overlay-icon" style="font-size:24px; line-height:1;">🎙️</div>
-                    <div style="display:flex; flex-direction:column; gap:4px; min-width:0;">
-                        <div id="voice-search-overlay-title" style="font-size:15px; font-weight:700;">음성 입력 준비 중</div>
-                        <div id="voice-search-overlay-text" style="font-size:13px; opacity:0.9; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">브라우저에서 음성 인식을 시작합니다.</div>
-                    </div>
-                `;
-                parentDoc.body.appendChild(overlay);
-                return overlay;
-            }
-
-            function showOverlay(title, text, icon = '🎙️') {
-                const overlay = getOrCreateOverlay();
-                const titleEl = parentDoc.getElementById('voice-search-overlay-title');
-                const textEl = parentDoc.getElementById('voice-search-overlay-text');
-                const iconEl = parentDoc.getElementById('voice-search-overlay-icon');
-                if (titleEl) titleEl.textContent = title;
-                if (textEl) textEl.textContent = text;
-                if (iconEl) iconEl.textContent = icon;
-                overlay.style.display = 'flex';
-            }
-
-            function hideOverlay() {
-                const overlay = parentDoc.getElementById('voice-search-overlay');
-                if (overlay) overlay.style.display = 'none';
-            }
-
-            function flashOverlay(title, text, icon = '✅', duration = 1400) {
-                showOverlay(title, text, icon);
-                window.setTimeout(() => hideOverlay(), duration);
-            }
-
-            const micBtn = document.getElementById('voice-search-btn');
-            window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-            if (!window.SpeechRecognition || !micBtn) {
-                if (micBtn) {
-                    micBtn.disabled = true;
-                    micBtn.title = '이 브라우저는 음성 인식을 지원하지 않습니다.';
-                }
-                return;
-            }
-
-            const recognition = new window.SpeechRecognition();
-            recognition.lang = 'ko-KR';
-            recognition.interimResults = true;
-            recognition.continuous = false;
-            let isListening = false;
-
-            try {
-                recognition.processLocally = true;
-            } catch (e) {
-                console.warn('processLocally unsupported', e);
-            }
-
-            async function ensureLanguagePack() {
-                try {
-                    if (typeof window.SpeechRecognition.available === 'function') {
-                        const state = await window.SpeechRecognition.available({
-                            langs: [recognition.lang],
-                            processLocally: true,
-                        });
-
-                        if (state === 'available') return true;
-
-                        if ((state === 'downloadable' || state === 'downloading') && typeof window.SpeechRecognition.install === 'function') {
-                            showOverlay('음성 입력 준비 중', '로컬 언어팩을 설치하고 있습니다.', '⬇️');
-                            const installed = await window.SpeechRecognition.install({ langs: [recognition.lang] });
-                            return installed === true;
-                        }
-
-                        if (state === 'unavailable') {
-                            flashOverlay('음성 입력 불가', '이 기기에서는 한국어 로컬 언어팩을 사용할 수 없습니다.', '⚠️', 2200);
-                            return false;
-                        }
-                    }
-                    return true;
-                } catch (err) {
-                    console.warn('language pack check/install failed', err);
-                    flashOverlay('음성 입력 오류', '언어팩 확인 중 문제가 발생했습니다.', '⚠️', 1800);
-                    return false;
-                }
-            }
-
-            micBtn.addEventListener('click', async function(e) {
-                e.preventDefault();
-
-                if (isListening) {
-                    recognition.stop();
-                    showOverlay('음성 입력 종료 중', '마이크를 정리하고 있습니다.', '⏹️');
-                    return;
-                }
-
-                micBtn.disabled = true;
-                micBtn.textContent = '🎙️';
-                showOverlay('음성 입력 준비 중', '브라우저에서 음성 인식을 시작합니다.', '🎙️');
-
-                const languageReady = await ensureLanguagePack();
-                if (!languageReady) {
-                    micBtn.disabled = false;
-                    micBtn.textContent = '🎤';
-                    return;
-                }
-
-                try {
-                    recognition.start();
-                } catch (err) {
-                    console.error('recognition start failed', err);
-                    micBtn.disabled = false;
-                    micBtn.textContent = '🎤';
-                    flashOverlay('음성 입력 오류', '음성 인식을 시작하지 못했습니다.', '❌', 1800);
-                }
-            });
-
-            recognition.addEventListener('start', function() {
-                isListening = true;
-                micBtn.disabled = false;
-                micBtn.textContent = '⏹️';
-                showOverlay('듣고 있습니다', '말씀하신 내용을 검색어에 입력합니다.', '🎤');
-            });
-
-            recognition.addEventListener('result', function(event) {
-                const inputEl = getSearchInput();
-                if (!inputEl || !event.results?.length) return;
-
-                const result = event.results[event.results.length - 1];
-                const transcript = result?.[0]?.transcript?.trim() || '';
-                if (!transcript) return;
-
-                inputEl.value = transcript;
-                inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-
-                if (result.isFinal) {
-                    showOverlay('음성 입력 완료', `입력된 검색어: ${transcript}`, '✅');
-                } else {
-                    showOverlay('듣고 있습니다', `인식 중: ${transcript}`, '🎤');
-                }
-            });
-
-            recognition.addEventListener('error', function(event) {
-                isListening = false;
-                micBtn.disabled = false;
-                micBtn.textContent = '🎤';
-
-                const errorTextMap = {
-                    'not-allowed': '마이크 권한이 거부되었습니다.',
-                    'service-not-allowed': '브라우저 정책상 음성 인식을 사용할 수 없습니다.',
-                    'language-not-supported': '로컬 언어팩이 없거나 지원되지 않습니다.',
-                    'no-speech': '음성이 감지되지 않았습니다.',
-                    'audio-capture': '마이크 장치를 찾을 수 없습니다.',
-                    'aborted': '음성 입력이 중단되었습니다.',
-                };
-
-                const message = errorTextMap[event.error] || `음성 입력 오류: ${event.error}`;
-                flashOverlay('음성 입력 오류', message, '⚠️', 2200);
-            });
-
-            recognition.addEventListener('end', function() {
-                const wasListening = isListening;
-                isListening = false;
-                micBtn.disabled = false;
-                micBtn.textContent = '🎤';
-
-                if (wasListening) {
-                    window.setTimeout(() => hideOverlay(), 1200);
-                } else {
-                    hideOverlay();
-                }
-            });
-        })();
-        </script>
+        <div style="display:flex; align-items:end; height:68px;">
+            <button id="voice-search-btn" type="button" title="음성 입력"
+                style="
+                    width:44px;
+                    height:44px;
+                    border:none;
+                    border-radius:10px;
+                    cursor:pointer;
+                    font-size:20px;
+                    background:#e5e7eb;
+                    color:#111827;
+                ">
+                🎤
+            </button>
+        </div>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
+
+components.html(
+    """
+    <script>
+    (() => {
+      "use strict";
+
+      const GLOBAL_KEY = "__STREAMLIT_SIMPLE_VOICE__";
+      const app = window[GLOBAL_KEY] = window[GLOBAL_KEY] || {};
+
+      const SpeechRecognition =
+        window.parent.SpeechRecognition ||
+        window.parent.webkitSpeechRecognition ||
+        window.SpeechRecognition ||
+        window.webkitSpeechRecognition;
+
+      if (!SpeechRecognition) {
+        console.warn("SpeechRecognition not supported");
+        return;
+      }
+
+      function getHostDocument() {
+        try {
+          if (window.parent && window.parent.document) {
+            void window.parent.document.body;
+            return window.parent.document;
+          }
+        } catch (e) {}
+        return document;
+      }
+
+      const hostDoc = getHostDocument();
+
+      function findButton() {
+        return hostDoc.getElementById("voice-search-btn");
+      }
+
+      function findInput() {
+        return (
+          hostDoc.querySelector('input[aria-label="검색어(자연어) 입력"]') ||
+          hostDoc.querySelector('input[placeholder="예: PDX 성능 테스트 "]')
+        );
+      }
+
+      function setInputValue(input, value) {
+        if (!input) return false;
+
+        const proto = window.parent.HTMLInputElement?.prototype || HTMLInputElement.prototype;
+        const desc = Object.getOwnPropertyDescriptor(proto, "value");
+        const setter = desc && desc.set;
+
+        if (setter) setter.call(input, value);
+        else input.value = value;
+
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      }
+
+      function setButtonColor(isListening) {
+        const btn = app.button;
+        if (!btn) return;
+
+        if (isListening) {
+          btn.style.background = "#ef4444";
+          btn.style.color = "#ffffff";
+        } else {
+          btn.style.background = "#e5e7eb";
+          btn.style.color = "#111827";
+        }
+      }
+
+      if (!app.recognition) {
+        app.recognition = new SpeechRecognition();
+        app.recognition.lang = "ko-KR";
+        app.recognition.interimResults = false;
+        app.recognition.continuous = false;
+        app.recognition.maxAlternatives = 1;
+      }
+
+      app.isListening = app.isListening || false;
+
+      const recognition = app.recognition;
+
+      recognition.onstart = () => {
+        app.isListening = true;
+        setButtonColor(true);
+      };
+
+      recognition.onend = () => {
+        app.isListening = false;
+        setButtonColor(false);
+      };
+
+      recognition.onerror = () => {
+        app.isListening = false;
+        setButtonColor(false);
+      };
+
+      recognition.onresult = (event) => {
+        let finalText = "";
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          if (result.isFinal) {
+            finalText += result[0].transcript;
+          }
+        }
+
+        finalText = finalText.trim();
+        if (!finalText) return;
+
+        const input = findInput();
+        setInputValue(input, finalText);
+      };
+
+      function bind() {
+        app.button = findButton();
+        if (!app.button) return false;
+
+        if (app.button.dataset.voiceBound === "1") {
+          setButtonColor(app.isListening);
+          return true;
+        }
+
+        app.button.dataset.voiceBound = "1";
+        setButtonColor(false);
+
+        app.button.addEventListener("click", async (e) => {
+          e.preventDefault();
+
+          if (app.isListening) {
+            try {
+              recognition.stop();
+            } catch (err) {
+              console.warn(err);
+            }
+            return;
+          }
+
+          try {
+            await navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+              stream.getTracks().forEach(track => track.stop());
+            });
+            recognition.start();
+          } catch (err) {
+            console.warn("microphone permission error:", err);
+            app.isListening = false;
+            setButtonColor(false);
+          }
+        });
+
+        return true;
+      }
+
+      if (!bind()) {
+        const obs = new MutationObserver(() => {
+          if (bind()) obs.disconnect();
+        });
+        obs.observe(hostDoc.documentElement, { childList: true, subtree: true });
+      }
+    })();
+    </script>
+    """,
+    height=0,
+)
 colA, colB, _ = st.columns([1, 1, 6])
 
 if colA.button("검색", type="primary", use_container_width=True):
