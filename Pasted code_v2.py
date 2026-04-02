@@ -4,6 +4,7 @@ from datetime import date
 from typing import List, Optional
 
 import streamlit as st
+import streamlit.components.v1 as components
 import requests
 import pandas as pd
 import re
@@ -409,33 +410,37 @@ components.html(
         setButtonColor(false);
 
         app.button.addEventListener("click", async (e) => {
-          e.preventDefault();
+            e.preventDefault();
 
-          if (app.isListening) {
+            if (app.isListening) {
+                try {
+                recognition.stop();
+                } catch (err) {
+                console.warn(err);
+                }
+                return;
+            }
+
             try {
-              recognition.stop();
-            } catch (err) {
-              console.warn(err);
-            }
-            return;
-          }
+                const ready = await ensureKoreanOnDevicePack();
+                if (!ready) {
+                alert("한국어 온디바이스 음성팩을 설치할 수 없습니다.");
+                return;
+                }
 
-          try {
-            // Ensure the on-device language pack is available before starting.
-            const ready = await ensureLanguagePack();
-            if (!ready) {
-              // If the pack couldn't be installed, abort the attempt.
-              return;
+                await navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+                stream.getTracks().forEach(track => track.stop());
+                });
+
+                recognition.processLocally = true;
+                recognition.lang = "ko-KR";
+                recognition.start();
+            } catch (err) {
+                console.warn("voice start error:", err);
+                alert("음성 인식 시작 실패: " + (err?.message || err));
+                app.isListening = false;
+                setButtonColor(false);
             }
-            await navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-              stream.getTracks().forEach(track => track.stop());
-            });
-            recognition.start();
-          } catch (err) {
-            console.warn("microphone permission error:", err);
-            app.isListening = false;
-            setButtonColor(false);
-          }
         });
 
         return true;

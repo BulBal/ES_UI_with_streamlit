@@ -220,7 +220,7 @@ def main():
     ap.add_argument("--ext-deny", nargs="*", default=[],
                     help="제외할 확장자 목록(예: tmp bak). 비우면 제외 없음")
     ap.add_argument("--csv", default="", help="(옵션) 파일별 요약을 CSV로 저장 경로")
-    ap.add_argument("--topn", type=int, default=170, help="상위 N개 토큰/확장자 출력")
+    ap.add_argument("--topn", type=int, default=300, help="상위 N개 토큰/확장자 출력")
     ap.add_argument("--name-deny", nargs="*", default=[],
                 help="제외할 파일명 정규식 목록(예: '^~\\$' '\\.tmp$')")
     ap.add_argument("--path-deny", nargs="*", default=[],
