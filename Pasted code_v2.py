@@ -332,6 +332,8 @@ components.html(
         app.recognition.interimResults = false;
         app.recognition.continuous = false;
         app.recognition.maxAlternatives = 1;
+        // ✅ 음성 인식이 로컬에서만 처리되도록 강제하여 개인정보 보호 강화 및 인식 속도 개선
+        app.recognition.processLocally = true;
       }
 
       app.isListening = app.isListening || false;
@@ -370,6 +372,30 @@ components.html(
         setInputValue(input, finalText);
       };
 
+      // 한국어 모델이 로컬에 존재하는지 확인하고, 다운로드 가능한 경우 설치를 시도하는 함수. 인식 가능 여부를 반환한다.
+      async function ensureLanguagePack() {
+        try {
+          const status = await SpeechRecognition.available({
+            langs: ["ko-KR"],
+            processLocally: true,
+          });
+          if (status === "available") {
+            return true;
+          }
+          if (status === "downloadable" || status === "downloading") {
+            const installed = await SpeechRecognition.install({
+              langs: ["ko-KR"],
+            });
+            return installed;
+          }
+          console.warn("Korean language pack unavailable.");
+          return false;
+        } catch (err) {
+          console.warn("Language pack check failed:", err);
+          return false;
+        }
+      }
+
       function bind() {
         app.button = findButton();
         if (!app.button) return false;
@@ -395,6 +421,12 @@ components.html(
           }
 
           try {
+            // Ensure the on-device language pack is available before starting.
+            const ready = await ensureLanguagePack();
+            if (!ready) {
+              // If the pack couldn't be installed, abort the attempt.
+              return;
+            }
             await navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
               stream.getTracks().forEach(track => track.stop());
             });

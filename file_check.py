@@ -69,6 +69,7 @@ DEFAULT_NAME_DENY = [
 DEFAULT_PATH_DENY = [
     r"(?i)^@eadir/",                     # Synology thumbnail dir
     r"(?i)^#recycle/",                   # Synology recycle bin
+    r"(?i)^@recycle/",                   # Synology recycle bin
     r"(?i)^\$recycle\.bin/",             # Windows recycle bin
     r"(?i)^system volume information/",  # Windows system folder
     r"(?i)^node_modules/",               # node deps
@@ -265,11 +266,11 @@ def main():
     ):
         # 확장자 필터
         ext_norm = (ext or "").lower().lstrip(".")  # "pdf"
-        if ext_norm not in INCLUDE_EXTS:
-            skipped_by_ext += 1
-            continue
-        if any(rx.search(fn) for rx in name_deny_res):
-            continue
+        # if ext_norm not in INCLUDE_EXTS:
+        #     skipped_by_ext += 1
+        #     continue
+        # if any(rx.search(fn) for rx in name_deny_res):
+        #     continue
         # if any(rx.search(rel.replace(os.sep, "/")) for rx in path_deny_res):
         #     continue
 
@@ -348,8 +349,8 @@ def main():
     print_counter_grid(
     "[1] 확장자 분포 (Top)",
     ext_counter.most_common(args.topn),
-    cols=15,          # ✅ 한 줄에 8개
-    label_width=10   # 기존 정렬 느낌 유지
+    cols=30,          # ✅ 한 줄에 8개
+    label_width=15   # 기존 정렬 느낌 유지
     )
 
     print("\n[2] 경로 깊이(depth) 통계 (root 기준)")
