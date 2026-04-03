@@ -358,6 +358,7 @@ voice_component = st.components.v2.component(
             try {
               if (typeof SpeechRecognition.available !== 'function') {
                 setStateValue('pack_status', 'no-available-api');
+                setStateValue('install_result', false);
                 return true;
               }
 
@@ -374,7 +375,10 @@ voice_component = st.components.v2.component(
                   setStateValue('install_result', false);
                   return false;
                 }
-                const installed = await SpeechRecognition.install({ langs: [lang] });
+                const installed = await SpeechRecognition.install({ 
+                langs: [lang],
+                processLocally: true,
+                });
                 setStateValue('install_result', installed);
                 return installed;
               }
@@ -382,6 +386,7 @@ voice_component = st.components.v2.component(
               return false;
             } catch (err) {
               setStateValue('pack_status', 'check-failed');
+              setStateValue('install_result', false);
               setStateValue('error', err?.message || String(err));
               return false;
             }
@@ -401,6 +406,7 @@ voice_component = st.components.v2.component(
 
             const ready = await ensureLanguagePack();
             if (!ready) {
+              setStateValue('status', 'install-failed');
               alert('한국어 온디바이스 음성팩을 설치할 수 없습니다.');
               return;
             }
@@ -442,6 +448,12 @@ with search_cols[1]:
         width="content",
         height="content",
     )
+    #필요할 때만 주석 해제
+# st.write("status:", result.status)
+# st.write("error:", result.error)
+# st.write("pack_status:", result.pack_status)
+# st.write("install_result:", result.install_result)
+# st.write("last_transcript:", result.last_transcript)
 
 colA, colB, _ = st.columns([1, 1, 6])
 
