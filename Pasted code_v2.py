@@ -5,6 +5,7 @@ from typing import List, Optional
 
 import streamlit as st
 import streamlit.components.v1 as components
+import streamlit.components.v2 as components_v2
 import requests
 import pandas as pd
 import re
@@ -235,131 +236,123 @@ search_cols = st.columns([10, 1])
 with search_cols[0]:
     st.text_input("검색어(자연어) 입력", placeholder="예: PDX 성능 테스트 ", key="query_text")
 with search_cols[1]:
-    st.markdown(
-        """
-        <div style="display:flex; align-items:end; height:68px;">
-            <button id="voice-search-btn" type="button" title="음성 입력"
-                style="
-                    width:44px;
-                    height:44px;
-                    border:none;
-                    border-radius:10px;
-                    cursor:pointer;
-                    font-size:20px;
-                    background:#e5e7eb;
-                    color:#111827;
-                ">
-                🎤
-            </button>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    voice_search_v2 = st.components.v2.component(
+    "voice_search_v2",
+    html="""
+    <div class="voice-search-root">
+      <button id="voice-search-btn-v2" type="button" title="음성 입력">🎤</button>
+    </div>
+    """,
+    css="""
+    .voice-search-root {
+      display: flex;
+      align-items: end;
+      height: 68px;
+    }
 
-components.html(
-    """
-    <script>
-    (() => {
-      "use strict";
+    #voice-search-btn-v2 {
+      width: 44px;
+      height: 44px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 20px;
+      background: #e5e7eb;
+      color: #111827;
+    }
 
-      const GLOBAL_KEY = "__STREAMLIT_SIMPLE_VOICE__";
-      const app = window[GLOBAL_KEY] = window[GLOBAL_KEY] || {};
+    #voice-search-btn-v2.listening {
+      background: #ef4444;
+      color: #ffffff;
+    }
+    """,
+    js="""
+    export default function(component) {
+      const { data, parentElement, setStateValue, setTriggerValue } = component;
 
-      const SpeechRecognition =
-        window.parent.SpeechRecognition ||
-        window.parent.webkitSpeechRecognition ||
-        window.SpeechRecognition ||
-        window.webkitSpeechRecognition;
+      const button = parentElement.querySelector('#voice-search-btn-v2');
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-      if (!SpeechRecognition) {
-        console.warn("SpeechRecognition not supported");
-        return;
-      }
-
-      function getHostDocument() {
-        try {
-          if (window.parent && window.parent.document) {
-            void window.parent.document.body;
-            return window.parent.document;
-          }
-        } catch (e) {}
-        return document;
-      }
-
-      const hostDoc = getHostDocument();
-
-      function findButton() {
-        return hostDoc.getElementById("voice-search-btn");
+      function setListeningUI(isListening) {
+        if (!button) return;
+        if (isListening) button.classList.add('listening');
+        else button.classList.remove('listening');
       }
 
       function findInput() {
+        if (data.input_selector) {
+          const selected = document.querySelector(data.input_selector);
+          if (selected) return selected;
+        }
+
         return (
-          hostDoc.querySelector('input[aria-label="검색어(자연어) 입력"]') ||
-          hostDoc.querySelector('input[placeholder="예: PDX 성능 테스트 "]')
+          document.querySelector(`input[aria-label="${data.input_label}"]`) ||
+          document.querySelector(`input[placeholder="${data.input_placeholder}"]`)
         );
       }
 
       function setInputValue(input, value) {
         if (!input) return false;
 
-        const proto = window.parent.HTMLInputElement?.prototype || HTMLInputElement.prototype;
-        const desc = Object.getOwnPropertyDescriptor(proto, "value");
+        const proto = window.HTMLInputElement?.prototype || HTMLInputElement.prototype;
+        const desc = Object.getOwnPropertyDescriptor(proto, 'value');
         const setter = desc && desc.set;
 
         if (setter) setter.call(input, value);
         else input.value = value;
 
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        input.dispatchEvent(new Event("change", { bubbles: true }));
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
         return true;
       }
 
-      function setButtonColor(isListening) {
-        const btn = app.button;
-        if (!btn) return;
-
-        if (isListening) {
-          btn.style.background = "#ef4444";
-          btn.style.color = "#ffffff";
-        } else {
-          btn.style.background = "#e5e7eb";
-          btn.style.color = "#111827";
-        }
+      if (!SpeechRecognition) {
+        setStateValue('status', 'unsupported');
+        setStateValue('error', 'SpeechRecognition not supported');
+        return;
       }
+
+      const GLOBAL_KEY = '__STREAMLIT_VOICE_SEARCH_V2__';
+      const app = (window[GLOBAL_KEY] = window[GLOBAL_KEY] || {});
 
       if (!app.recognition) {
         app.recognition = new SpeechRecognition();
-        app.recognition.lang = "ko-KR";
+        app.recognition.lang = data.lang || 'ko-KR';
         app.recognition.interimResults = false;
         app.recognition.continuous = false;
         app.recognition.maxAlternatives = 1;
-        // ✅ 음성 인식이 로컬에서만 처리되도록 강제하여 개인정보 보호 강화 및 인식 속도 개선
-        app.recognition.processLocally = true;
+        app.recognition.processLocally = !!data.process_locally;
       }
-
-      app.isListening = app.isListening || false;
 
       const recognition = app.recognition;
 
       recognition.onstart = () => {
         app.isListening = true;
-        setButtonColor(true);
+        setListeningUI(true);
+        setStateValue('status', 'listening');
+        setStateValue('is_listening', true);
+        setStateValue('error', null);
       };
 
       recognition.onend = () => {
         app.isListening = false;
-        setButtonColor(false);
+        setListeningUI(false);
+        setStateValue('status', 'idle');
+        setStateValue('is_listening', false);
       };
 
-      recognition.onerror = () => {
+      recognition.onerror = (event) => {
         app.isListening = false;
-        setButtonColor(false);
+        setListeningUI(false);
+        setStateValue('status', 'error');
+        setStateValue('is_listening', false);
+        setStateValue('error', event?.error || event?.message || 'unknown-error');
       };
 
       recognition.onresult = (event) => {
-        let finalText = "";
+        let finalText = '';
 
-        for (let i = event.resultIndex; i < event.results.length; i++) {
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
           const result = event.results[i];
           if (result.isFinal) {
             finalText += result[0].transcript;
@@ -371,91 +364,109 @@ components.html(
 
         const input = findInput();
         setInputValue(input, finalText);
+
+        setStateValue('status', 'done');
+        setStateValue('error', null);
+        setStateValue('last_transcript', finalText);
+        setTriggerValue('transcript', finalText);
       };
 
-      // 한국어 모델이 로컬에 존재하는지 확인하고, 다운로드 가능한 경우 설치를 시도하는 함수. 인식 가능 여부를 반환한다.
       async function ensureLanguagePack() {
         try {
-          const status = await SpeechRecognition.available({
-            langs: ["ko-KR"],
-            processLocally: true,
-          });
-          if (status === "available") {
+          if (!data.process_locally) {
             return true;
           }
-          if (status === "downloadable" || status === "downloading") {
+
+          if (typeof SpeechRecognition.available !== 'function') {
+            setStateValue('status', 'no-available-api');
+            setStateValue('error', 'SpeechRecognition.available() not supported');
+            return false;
+          }
+
+          const status = await SpeechRecognition.available({
+            langs: [data.lang || 'ko-KR'],
+            processLocally: true,
+          });
+
+          setStateValue('pack_status', status);
+
+          if (status === 'available') {
+            return true;
+          }
+
+          if (status === 'downloadable' || status === 'downloading') {
+            if (typeof SpeechRecognition.install !== 'function') {
+              setStateValue('status', 'no-install-api');
+              setStateValue('error', 'SpeechRecognition.install() not supported');
+              return false;
+            }
+
             const installed = await SpeechRecognition.install({
-              langs: ["ko-KR"],
+              langs: [data.lang || 'ko-KR'],
             });
+
+            setStateValue('install_result', installed);
+
+            if (!installed) {
+              setStateValue('status', 'install-failed');
+              setStateValue('error', 'language-pack-install-failed');
+            }
+
             return installed;
           }
-          console.warn("Korean language pack unavailable.");
+
+          setStateValue('status', 'pack-unavailable');
+          setStateValue('error', 'language-pack-unavailable');
           return false;
         } catch (err) {
-          console.warn("Language pack check failed:", err);
+          setStateValue('status', 'pack-check-failed');
+          setStateValue('error', err?.message || String(err));
           return false;
         }
       }
 
-      function bind() {
-        app.button = findButton();
-        if (!app.button) return false;
+      async function handleClick(e) {
+        e.preventDefault();
 
-        if (app.button.dataset.voiceBound === "1") {
-          setButtonColor(app.isListening);
-          return true;
+        if (app.isListening) {
+          try {
+            recognition.stop();
+          } catch (err) {
+            setStateValue('error', err?.message || String(err));
+          }
+          return;
         }
 
-        app.button.dataset.voiceBound = "1";
-        setButtonColor(false);
+        try {
+          const ready = await ensureLanguagePack();
+          if (!ready) return;
 
-        app.button.addEventListener("click", async (e) => {
-            e.preventDefault();
+          await navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+            stream.getTracks().forEach((track) => track.stop());
+          });
 
-            if (app.isListening) {
-                try {
-                recognition.stop();
-                } catch (err) {
-                console.warn(err);
-                }
-                return;
-            }
-
-            try {
-                const ready = await ensureKoreanOnDevicePack();
-                if (!ready) {
-                alert("한국어 온디바이스 음성팩을 설치할 수 없습니다.");
-                return;
-                }
-
-                await navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-                stream.getTracks().forEach(track => track.stop());
-                });
-
-                recognition.processLocally = true;
-                recognition.lang = "ko-KR";
-                recognition.start();
-            } catch (err) {
-                console.warn("voice start error:", err);
-                alert("음성 인식 시작 실패: " + (err?.message || err));
-                app.isListening = false;
-                setButtonColor(false);
-            }
-        });
-
-        return true;
+          recognition.lang = data.lang || 'ko-KR';
+          recognition.processLocally = !!data.process_locally;
+          recognition.start();
+        } catch (err) {
+          app.isListening = false;
+          setListeningUI(false);
+          setStateValue('status', 'start-failed');
+          setStateValue('is_listening', false);
+          setStateValue('error', err?.message || String(err));
+        }
       }
 
-      if (!bind()) {
-        const obs = new MutationObserver(() => {
-          if (bind()) obs.disconnect();
-        });
-        obs.observe(hostDoc.documentElement, { childList: true, subtree: true });
+      if (button) {
+        button.onclick = handleClick;
       }
-    })();
-    </script>
+      setListeningUI(!!app.isListening);
+
+      return () => {
+        if (button) button.onclick = null;
+      };
+    }
     """,
-    height=0,
 )
 colA, colB, _ = st.columns([1, 1, 6])
 
