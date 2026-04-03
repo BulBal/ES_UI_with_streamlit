@@ -235,266 +235,214 @@ target_mode = st.radio(
 search_cols = st.columns([10, 1])
 with search_cols[0]:
     st.text_input("검색어(자연어) 입력", placeholder="예: PDX 성능 테스트 ", key="query_text")
-with search_cols[1]:
-        # Create the v2 component.  The component consists of a simple HTML
-        # button styled in CSS and a JavaScript module that handles speech
-        # recognition.  All state management and host document interaction
-        # occurs in the JS code; Python merely instantiates the component.
-        voice_component = st.components.v2.component(
-            name="voice_search_v2_component",
-            html="""
-            <div class="voice-container">
-              <button id="voice-button" type="button" title="음성 입력">🎤</button>
-            </div>
-            """,
-            css="""
-            .voice-container {
-              display: flex;
-              align-items: end;
-              height: 68px;
+voice_component = st.components.v2.component(
+        name="voice_search_v2_minimal",
+        html="""
+        <div class="voice-container">
+          <button id="voice-button" type="button" title="음성 입력">🎤</button>
+        </div>
+        """,
+        css="""
+        .voice-container {
+          display: flex;
+          align-items: end;
+          height: 68px;
+        }
+
+        #voice-button {
+          width: 44px;
+          height: 44px;
+          border: none;
+          border-radius: 10px;
+          cursor: pointer;
+          font-size: 20px;
+          background: #e5e7eb;
+          color: #111827;
+        }
+
+        #voice-button.listening {
+          background: #ef4444;
+          color: #ffffff;
+        }
+        """,
+        js="""
+        export default function(component) {
+          const { parentElement, data, setStateValue } = component;
+          const button = parentElement.querySelector('#voice-button');
+          if (!button) return;
+
+          const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+          if (!SpeechRecognition) {
+            setStateValue('status', 'unsupported');
+            setStateValue('error', 'SpeechRecognition not supported');
+            return;
+          }
+
+          const lang = (data && data.lang) || 'ko-KR';
+
+          function findInput() {
+            return (
+              document.querySelector('input[aria-label="검색어(자연어) 입력"]') ||
+              document.querySelector('input[placeholder="예: PDX 성능 테스트 "]')
+            );
+          }
+
+          function setInputValue(input, value) {
+            if (!input) return;
+            const proto = window.HTMLInputElement.prototype;
+            const descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
+            const setter = descriptor && descriptor.set;
+            if (setter) setter.call(input, value);
+            else input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+
+          const globalKey = '__STREAMLIT_VOICE_SEARCH_V2_MIN__';
+          const app = window[globalKey] = window[globalKey] || {};
+
+          if (!app.recognition) {
+            app.recognition = new SpeechRecognition();
+            app.recognition.lang = lang;
+            app.recognition.interimResults = false;
+            app.recognition.continuous = false;
+            app.recognition.maxAlternatives = 1;
+            app.recognition.processLocally = true;
+          }
+
+          const recognition = app.recognition;
+          let isListening = app.isListening || false;
+
+          function renderButton() {
+            button.classList.toggle('listening', isListening);
+          }
+
+          recognition.onstart = () => {
+            isListening = true;
+            app.isListening = true;
+            renderButton();
+            setStateValue('status', 'listening');
+            setStateValue('error', null);
+          };
+
+          recognition.onend = () => {
+            isListening = false;
+            app.isListening = false;
+            renderButton();
+            setStateValue('status', 'idle');
+          };
+
+          recognition.onerror = (event) => {
+            isListening = false;
+            app.isListening = false;
+            renderButton();
+            setStateValue('status', 'error');
+            setStateValue('error', event?.error || event?.message || 'unknown-error');
+          };
+
+          recognition.onresult = (event) => {
+            let finalText = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+              const result = event.results[i];
+              if (result.isFinal) finalText += result[0].transcript;
             }
+            finalText = finalText.trim();
+            if (!finalText) return;
+            const input = findInput();
+            setInputValue(input, finalText);
+            setStateValue('status', 'done');
+            setStateValue('last_transcript', finalText);
+          };
 
-            #voice-button {
-              width: 44px;
-              height: 44px;
-              border: none;
-              border-radius: 10px;
-              cursor: pointer;
-              font-size: 20px;
-              background: #e5e7eb;
-              color: #111827;
-            }
-
-            #voice-button.listening {
-              background: #ef4444;
-              color: #ffffff;
-            }
-            """,
-            js="""
-            // The JavaScript module for the voice search component.  When
-            // Streamlit mounts the component this function is invoked with
-            // a `component` argument that exposes APIs to manage state and
-            // access the parent DOM.
-            export default function(component) {
-              const { parentElement, data } = component;
-
-              // Helper: set the iframe's allow attribute to permit
-              // microphone and on-device speech recognition.  V2 components
-              // still run within an iframe; `window.frameElement` refers
-              // to that iframe element.  If present, update its `allow`
-              // attribute.  This must be done before requesting media
-              // access or calling SpeechRecognition APIs.
-              try {
-                const frame = window.frameElement;
-                if (frame) {
-                  const existing = frame.getAttribute('allow') || '';
-                  const needed = 'microphone; on-device-speech-recognition';
-                  // Append new policies if they are not already present.
-                  const tokens = existing.split(';').map(s => s.trim()).filter(Boolean);
-                  if (!tokens.includes('microphone')) tokens.push('microphone');
-                  if (!tokens.includes('on-device-speech-recognition')) tokens.push('on-device-speech-recognition');
-                  frame.setAttribute('allow', tokens.join('; '));
-                }
-              } catch (_) {
-                // Fail silently; lack of frameElement access just means the
-                // policy must be provided at a higher layer.
+          async function ensureLanguagePack() {
+            try {
+              if (typeof SpeechRecognition.available !== 'function') {
+                setStateValue('pack_status', 'no-available-api');
+                return true;
               }
 
-              // Determine the language to recognise.  Default to Korean.
-              const lang = (data && data.lang) || 'ko-KR';
-
-              // Obtain SpeechRecognition constructors.  Use parent window
-              // fallbacks if available to account for iframe contexts.
-              const SpeechRecognition =
-                window.SpeechRecognition ||
-                window.webkitSpeechRecognition ||
-                (window.parent && (window.parent.SpeechRecognition || window.parent.webkitSpeechRecognition));
-
-              // If the API is unavailable, there's nothing to do.
-              if (!SpeechRecognition) {
-                console.warn('SpeechRecognition API not supported');
-                return;
-              }
-
-              // Locate the microphone button inside the component's DOM.
-              const button = parentElement.querySelector('#voice-button');
-              if (!button) {
-                console.warn('Voice button not found');
-                return;
-              }
-
-              // Helper to find the host document (parent of the iframe).  We
-              // need this to locate the Streamlit text input outside the
-              // component.  The try/catch prevents cross‑origin errors.
-              function getHostDocument() {
-                try {
-                  if (window.parent && window.parent.document) {
-                    void window.parent.document.body;
-                    return window.parent.document;
-                  }
-                } catch (_) {}
-                return document;
-              }
-              const hostDoc = getHostDocument();
-
-              function findInput() {
-                // Try to locate the input by aria label or placeholder.  Adjust
-                // selectors if your input uses different attributes.
-                return (
-                  hostDoc.querySelector('input[aria-label="검색어(자연어) 입력"]') ||
-                  hostDoc.querySelector('input[placeholder="예: PDX 성능 테스트 "]')
-                );
-              }
-
-              function setInputValue(input, value) {
-                if (!input) return;
-                const proto = window.HTMLInputElement.prototype;
-                const descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
-                const setter = descriptor && descriptor.set;
-                if (setter) {
-                  setter.call(input, value);
-                } else {
-                  input.value = value;
-                }
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-              }
-
-              // Create (or reuse) a SpeechRecognition instance.  Keep it on
-              // a global symbol to avoid multiple instances across reruns.
-              const globalKey = '__STREAMLIT_VOICE_SEARCH_V2__';
-              const app = window[globalKey] = window[globalKey] || {};
-              if (!app.recognition) {
-                app.recognition = new SpeechRecognition();
-                app.recognition.lang = lang;
-                app.recognition.interimResults = false;
-                app.recognition.continuous = false;
-                app.recognition.maxAlternatives = 1;
-                app.recognition.processLocally = true;
-              }
-              const recognition = app.recognition;
-
-              // State flag to track listening state.
-              let isListening = false;
-
-              // Visual feedback: toggle button class based on state.
-              function updateButton() {
-                if (isListening) {
-                  button.classList.add('listening');
-                } else {
-                  button.classList.remove('listening');
-                }
-              }
-
-              recognition.onstart = () => {
-                isListening = true;
-                updateButton();
-              };
-              recognition.onend = () => {
-                isListening = false;
-                updateButton();
-              };
-              recognition.onerror = () => {
-                isListening = false;
-                updateButton();
-              };
-              recognition.onresult = (event) => {
-                let finalText = '';
-                for (let i = event.resultIndex; i < event.results.length; i++) {
-                  const result = event.results[i];
-                  if (result.isFinal) {
-                    finalText += result[0].transcript;
-                  }
-                }
-                finalText = finalText.trim();
-                if (!finalText) return;
-                const input = findInput();
-                setInputValue(input, finalText);
-              };
-
-              // Check availability and install language pack if needed.  Returns
-              // true if on‑device recognition can be started, false otherwise.
-              async function ensureKoreanOnDevicePack() {
-                try {
-                  // Skip if API not available.  Treat as available (will
-                  // fall back to cloud) if available() is undefined.
-                  if (typeof SpeechRecognition.available !== 'function') {
-                    return true;
-                  }
-                  const status = await SpeechRecognition.available({
-                    langs: [lang],
-                    processLocally: true,
-                  });
-                  if (status === 'available') return true;
-                  if (status === 'downloadable' || status === 'downloading') {
-                    if (typeof SpeechRecognition.install !== 'function') {
-                      return false;
-                    }
-                    const installed = await SpeechRecognition.install({ langs: [lang] });
-                    return installed;
-                  }
-                  // 'unavailable'
-                  return false;
-                } catch (err) {
-                  console.warn('Language pack check failed:', err);
-                  return false;
-                }
-              }
-
-              // Click handler: toggles recognition on/off.  Performs language
-              // pack installation when starting recognition.
-              button.addEventListener('click', async (e) => {
-                e.preventDefault();
-                if (isListening) {
-                  try {
-                    recognition.stop();
-                  } catch (err) {
-                    console.warn('stop error:', err);
-                  }
-                  return;
-                }
-                // Not listening: attempt to prepare environment.
-                const ready = await ensureKoreanOnDevicePack();
-                if (!ready) {
-                  alert('한국어 온디바이스 음성팩을 설치할 수 없습니다.');
-                  return;
-                }
-                try {
-                  // Request microphone permission once.  Immediately close the
-                  // stream; recognition.start() will re-open internally.
-                  await navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-                    stream.getTracks().forEach((track) => track.stop());
-                  });
-                } catch (err) {
-                  console.warn('microphone permission error:', err);
-                  return;
-                }
-                try {
-                  recognition.processLocally = true;
-                  recognition.lang = lang;
-                  recognition.start();
-                } catch (err) {
-                  console.warn('start error:', err);
-                  alert('음성 인식 시작 실패: ' + (err?.message || String(err)));
-                  isListening = false;
-                  updateButton();
-                }
+              const status = await SpeechRecognition.available({
+                langs: [lang],
+                processLocally: true,
               });
-            }
-            """,
-        )
+              setStateValue('pack_status', status);
 
-        # Invoke the component.  We pass configuration values via the `data`
-        # argument so that the JavaScript can access the language and input
-        # selectors.  We set minimal `default` state because we manage state
-        # within the component's JS.  Height is implicitly calculated.
-        voice_component(
-            key="voice_component_instance",
-            data={
-                "lang": "ko-KR",
-            },
-            default={},
-        )
+              if (status === 'available') return true;
+
+              if (status === 'downloadable' || status === 'downloading') {
+                if (typeof SpeechRecognition.install !== 'function') {
+                  setStateValue('install_result', false);
+                  return false;
+                }
+                const installed = await SpeechRecognition.install({ langs: [lang] });
+                setStateValue('install_result', installed);
+                return installed;
+              }
+
+              return false;
+            } catch (err) {
+              setStateValue('pack_status', 'check-failed');
+              setStateValue('error', err?.message || String(err));
+              return false;
+            }
+          }
+
+          button.onclick = async (e) => {
+            e.preventDefault();
+
+            if (isListening) {
+              try {
+                recognition.stop();
+              } catch (err) {
+                setStateValue('error', err?.message || String(err));
+              }
+              return;
+            }
+
+            const ready = await ensureLanguagePack();
+            if (!ready) {
+              alert('한국어 온디바이스 음성팩을 설치할 수 없습니다.');
+              return;
+            }
+
+            try {
+              await navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+                stream.getTracks().forEach((track) => track.stop());
+              });
+              recognition.processLocally = true;
+              recognition.lang = lang;
+              recognition.start();
+            } catch (err) {
+              setStateValue('status', 'start-failed');
+              setStateValue('error', err?.message || String(err));
+            }
+          };
+
+          renderButton();
+        }
+        """,
+    )
+
+with search_cols[1]:
+    result = voice_component(
+        key="voice_component_instance",
+        data={"lang": "ko-KR"},
+        default={
+            "status": "idle",
+            "error": None,
+            "pack_status": None,
+            "install_result": None,
+            "last_transcript": None,
+        },
+        on_status_change=lambda: None,
+        on_error_change=lambda: None,
+        on_pack_status_change=lambda: None,
+        on_install_result_change=lambda: None,
+        on_last_transcript_change=lambda: None,
+        width="content",
+        height="content",
+    )
+
 colA, colB, _ = st.columns([1, 1, 6])
 
 if colA.button("검색", type="primary", use_container_width=True):
