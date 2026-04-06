@@ -218,7 +218,12 @@ if "raw_extension" not in st.session_state:
     st.session_state.raw_extension = ""
 if "selected_path_display" not in st.session_state:
     st.session_state.selected_path_display = ""
-
+if "query_text" not in st.session_state:
+    st.session_state["query_text"] = ""
+if "pending_transcript" not in st.session_state:
+    st.session_state["pending_transcript"] = None
+if "should_search" not in st.session_state:
+    st.session_state["should_search"] = False
 # -----------------------------
 # 검색 대상 / 검색창 (본문 상단)
 # -----------------------------
@@ -230,6 +235,13 @@ target_mode = st.radio(
     horizontal=True,
     key="target_mode",
 )
+
+pending = st.session_state.get("pending_transcript")
+
+if pending:
+    st.session_state["query_text"] = pending
+    st.session_state["pending_transcript"] = None
+    st.session_state["should_search"] = False
 
 # 검색창 기능 (음성 입력 기능 포함)
 # 텍스트 입력과 음성 입력 버튼을 한 줄에 배치한다.
@@ -461,7 +473,7 @@ with search_cols[1]:
 if getattr(result, "last_transcript", None):
     transcript = result.last_transcript.strip()
     if transcript and st.session_state.get("query_text") != transcript:
-        st.session_state["query_text"] = transcript
+        st.session_state["pending_transcript"] = transcript
         st.session_state["should_search"] = False
         st.rerun()
 
