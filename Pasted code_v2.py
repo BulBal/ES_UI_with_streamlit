@@ -271,6 +271,10 @@ voice_component = st.components.v2.component(
           const button = parentElement.querySelector('#voice-button');
           if (!button) return;
 
+
+        // 객체 선언부가 가장 중요함 
+        // SpeechRecognition API는 브라우저마다 지원 여부와 기능이 다르기 때문에, 글로벌 객체에 인스턴스를 하나 만들어서 재사용하는 방식을 택함.
+
           const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
           if (!SpeechRecognition) {
             setStateValue('status', 'unsupported');
