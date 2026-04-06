@@ -6,6 +6,7 @@ from typing import List, Optional
 import streamlit as st
 import streamlit.components.v1 as components
 import streamlit.components.v2 as components_v2
+from typing import Optional, Iterable
 import requests
 import pandas as pd
 import re
@@ -395,9 +396,14 @@ voice_component = st.components.v2.component(
               return false;
             }
           }
+          button.onmousedown = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            };
 
           button.onclick = async (e) => {
             e.preventDefault();
+            e.stopPropagation();
 
             if (isListening) {
               try {
@@ -452,6 +458,14 @@ with search_cols[1]:
         width="content",
         height="content",
     )
+if getattr(result, "last_transcript", None):
+    transcript = result.last_transcript.strip()
+    if transcript and st.session_state.get("query_text") != transcript:
+        st.session_state["query_text"] = transcript
+        st.session_state["should_search"] = False
+        st.rerun()
+
+query = st.session_state.get("query_text", "").strip()
     #필요할 때만 주석 해제
 # st.write("status:", result.status)
 # st.write("error:", result.error)
@@ -462,12 +476,12 @@ with search_cols[1]:
 colA, colB, _ = st.columns([1, 1, 6])
 
 if colA.button("검색", type="primary", use_container_width=True):
-    if not st.session_state.query_text.strip():
+    if not st.session_state.get("query_text", "").strip():
         st.warning("검색어를 입력해줘.")
         st.stop()
     st.session_state.should_search = True
     st.session_state.page = 1
-def reset_search_state(keep_keys: None):
+def reset_search_state(keep_keys: Optional[Iterable[str]] = None):
     keep_keys = keep_keys or []
     keep ={k: st.session_state.get(k) for k in keep_keys if k in st.session_state}
     st.session_state.clear()
@@ -550,6 +564,7 @@ with st.sidebar:
 
 if st.session_state.get("should_search", False):
     selected_index = st.session_state.get(IDX_KEY, cfg.es_default_index)
+    st.session_state.should_search = False
 
     builder = dsl_registry.get(selected_index)
     params = SearchParams(
@@ -574,6 +589,8 @@ if st.session_state.get("should_search", False):
     try:
         with st.spinner("Elasticsearch 검색 중..."):
             total, hits = es.search(selected_index, dsl)
+
+            
             rows = []
             if test_mode:
                 for h in hits :
