@@ -115,6 +115,57 @@ def human_readable_size(num_bytes: int | float | None) -> str:
 
     return ""
 
+
+RESULT_SNAPSHOT_SIZE = 3000  # 1차 검색 결과를 최대 몇 건까지 로컬 결과 집합으로 들고 있을지
+
+def apply_refine_filter(df: pd.DataFrame, query: str) -> pd.DataFrame:
+    if df is None:
+        return pd.DataFrame()
+    if df.empty:
+        return df.copy()
+
+    query = (query or "").strip().lower()
+    if not query:
+        return df.copy()
+
+    tokens = [t for t in re.split(r"\s+", query) if t]
+    if not tokens:
+        return df.copy()
+
+    searchable_cols = ["filename", "path_real", "extension"]
+    lower_map = {
+        col: df[col].fillna("").astype(str).str.lower()
+        for col in searchable_cols
+        if col in df.columns
+    }
+
+    mask = pd.Series(True, index=df.index)
+
+    for token in tokens:
+        token_mask = pd.Series(False, index=df.index)
+        for _, series in lower_map.items():
+            token_mask = token_mask | series.str.contains(token, regex=False)
+        mask = mask & token_mask
+
+    return df.loc[mask].copy()
+
+
+def paginate_local_df(df: pd.DataFrame, page: int, size: int) -> tuple[pd.DataFrame, int, int]:
+    if df is None:
+        return pd.DataFrame(), 1, 0
+
+    total = len(df)
+    if total == 0:
+        return df.copy(), 1, 0
+
+    total_pages = max(1, math.ceil(total / size))
+    page = max(1, min(page, total_pages))
+
+    start = (page - 1) * size
+    end = start + size
+    return df.iloc[start:end].copy(), page, total
+
+
 # 검색모드
 def normalize_search_params() -> tuple[str, list[str] | None]:
     target_mode = st.session_state.target_mode
@@ -220,6 +271,16 @@ if "selected_path_display" not in st.session_state:
     st.session_state.selected_path_display = ""
 # if "query_text" not in st.session_state:
 #     st.session_state["query_text"] = ""
+if "result_snapshot_df" not in st.session_state:
+    st.session_state["result_snapshot_df"] = None
+if "working_result_df" not in st.session_state:
+    st.session_state["working_result_df"] = None
+if "result_total" not in st.session_state:
+    st.session_state["result_total"] = 0
+if "local_page" not in st.session_state:
+    st.session_state["local_page"] = 1
+if "refine_query" not in st.session_state:
+    st.session_state["refine_query"] = ""
 if "pending_transcript" not in st.session_state:
     st.session_state["pending_transcript"] = None
 if "should_search" not in st.session_state:
@@ -486,7 +547,8 @@ if getattr(result, "last_transcript", None):
         st.rerun()
 
 query = st.session_state.get("query_text", "").strip()
-    #필요할 때만 주석 해제
+
+#필요할 때만 주석 해제
 # st.write("status:", result.status)
 # st.write("error:", result.error)
 # st.write("pack_status:", result.pack_status)
@@ -499,14 +561,31 @@ if colA.button("검색", type="primary", use_container_width=True):
     if not st.session_state.get("query_text", "").strip():
         st.warning("검색어를 입력해줘.")
         st.stop()
-    st.session_state.should_search = True
-    st.session_state.page = 1
+
+    st.session_state["should_search"] = True
+    st.session_state["local_page"] = 1
 def reset_search_state(keep_keys: Optional[Iterable[str]] = None):
     keep_keys = keep_keys or []
-    keep ={k: st.session_state.get(k) for k in keep_keys if k in st.session_state}
+    keep = {k: st.session_state.get(k) for k in keep_keys if k in st.session_state}
+
     st.session_state.clear()
+
     for k, v in keep.items():
         st.session_state[k] = v
+
+    st.session_state["query_text"] = ""
+    st.session_state["pending_transcript"] = None
+    st.session_state["should_search"] = False
+    st.session_state["last_applied_transcript"] = None
+
+    st.session_state["raw_extension"] = ""
+    st.session_state["selected_path_display"] = ""
+
+    st.session_state["result_snapshot_df"] = None
+    st.session_state["working_result_df"] = None
+    st.session_state["result_total"] = 0
+    st.session_state["local_page"] = 1
+    st.session_state["refine_query"] = ""
 
 if colB.button("초기화", use_container_width=True):
     reset_search_state(keep_keys=["selected_index", "size", "target_mode"])
@@ -584,13 +663,15 @@ with st.sidebar:
 
 if st.session_state.get("should_search", False):
     selected_index = st.session_state.get(IDX_KEY, cfg.es_default_index)
-    st.session_state.should_search = False
+    st.session_state["should_search"] = False
 
     builder = dsl_registry.get(selected_index)
+
+    # 1차 ES 검색은 snapshot 확보용으로 상위 N건 고정
     params = SearchParams(
-        q=st.session_state.query_text.strip(),
-        page=int(st.session_state.page),
-        size=int(st.session_state.size),
+        q=st.session_state.get("query_text", "").strip(),
+        page=1,
+        size=RESULT_SNAPSHOT_SIZE,
         sort=sort,
         extension=extension,
         target_mode=target_mode,
@@ -636,208 +717,27 @@ if st.session_state.get("should_search", False):
                     })
 
             result_df = pd.DataFrame(rows)
-            if not rows:
-                pass
-            else:
+            if not result_df.empty:
                 for col in ["created_at", "modified_at"]:
                     if col in result_df.columns:
                         result_df[col] = pd.to_datetime(result_df[col], errors="coerce").dt.floor("min")
                     else:
                         result_df[col] = pd.NaT
+
                 if "filesize_bytes" in result_df.columns:
                     result_df["filesize"] = result_df["filesize_bytes"].apply(human_readable_size)
                 else:
                     result_df["filesize_bytes"] = pd.NA
-                    result_df['filesize']= ""
-            
+                    result_df["filesize"] = ""
+
+            st.session_state["result_snapshot_df"] = result_df.copy()
+            st.session_state["working_result_df"] = result_df.copy()
+            st.session_state["result_total"] = total
+            st.session_state["local_page"] = 1
+            st.session_state["refine_query"] = ""
+
         st.success(f"총 {total}건")
-
-        if not hits:
-            st.info("검색 결과가 없습니다.")
-        else:
-            display_df = result_df[[
-                "filename",
-                "path_real",
-                "extension",
-                "filesize",
-                "created_at",
-                "modified_at",
-            ]].copy()
-
-            # 복사 버튼 렌더러에서 사용할 값
-            display_df["copy"] = display_df["path_real"].fillna("").astype(str)
-
-            max_filename_len = (
-                display_df["filename"].fillna("").astype(str).map(len).max()
-                if not display_df.empty else 10
-            )
-            max_path_len = (
-                display_df["path_real"].fillna("").astype(str).map(len).max()
-                if not display_df.empty else 20
-            )
-
-            filename_width = int(min(max(180, max_filename_len * 9), 500))
-            path_width = int(min(max(400, max_path_len * 7), 1200))
-            table_height = min(900, 80 + len(display_df) * 35)
-
-            copy_cell_renderer = JsCode("""
-            class CopyButtonRenderer {
-                init(params) {
-                    this.params = params;
-                    this.eGui = document.createElement('div');
-                    this.eGui.style.display = 'flex';
-                    this.eGui.style.justifyContent = 'center';
-                    this.eGui.style.alignItems = 'center';
-                    this.eGui.style.height = '100%';
-
-                    const button = document.createElement('button');
-                    button.innerText = '📋';
-                    button.title = params.value || '경로 없음';
-                    button.style.cursor = 'pointer';
-                    button.style.border = '1px solid #d1d5db';
-                    button.style.background = '#ffffff';
-                    button.style.borderRadius = '6px';
-                    button.style.padding = '2px 6px';
-                    button.style.fontSize = '14px';
-                    button.style.lineHeight = '1.2';
-
-                    if (!params.value) {
-                        button.disabled = true;
-                        button.style.cursor = 'not-allowed';
-                        button.style.opacity = '0.5';
-                    }
-
-                    button.addEventListener('click', async (e) => {
-                        e.stopPropagation();
-                        if (!params.value) return;
-
-                        try {
-                            await navigator.clipboard.writeText(params.value);
-                            button.innerText = '✅';
-                            setTimeout(() => {
-                                button.innerText = '📋';
-                            }, 900);
-                        } catch (err) {
-                            console.error('clipboard copy failed', err);
-                            button.innerText = '❌';
-                            setTimeout(() => {
-                                button.innerText = '📋';
-                            }, 900);
-                        }
-                    });
-
-                    this.eGui.appendChild(button);
-                }
-
-                getGui() {
-                    return this.eGui;
-                }
-            }
-            """)
-
-            gb = GridOptionsBuilder.from_dataframe(display_df)
-
-            gb.configure_default_column(
-                resizable=True,
-                sortable=False,
-                filter=False,
-                wrapText=False,
-                autoHeight=False,
-            )
-
-            gb.configure_column(
-                "copy",
-                header_name="경로 복사",
-                width=80,
-                pinned="left",
-                cellRenderer=copy_cell_renderer,
-                sortable=False,
-                filter=False,
-                suppressMenu=True,
-            )
-
-            gb.configure_column("filename", header_name="파일명", width=filename_width)
-            gb.configure_column("path_real", header_name="파일 경로", width=path_width)
-            gb.configure_column("extension", header_name="확장자", width=100)
-            gb.configure_column("filesize", header_name="파일 크기", width=110)
-            gb.configure_column(
-                "created_at",
-                header_name="생성일",
-                width=160,
-                valueFormatter="value ? new Date(value).toLocaleString('sv-SE').slice(0,16).replace('T',' ') : ''",
-            )
-            gb.configure_column(
-                "modified_at",
-                header_name="수정일",
-                width=160,
-                valueFormatter="value ? new Date(value).toLocaleString('sv-SE').slice(0,16).replace('T',' ') : ''",
-            )
-
-            gb.configure_selection(
-                selection_mode="single",
-                use_checkbox=False,
-            )
-
-            grid_options = gb.build()
-            grid_options["rowHeight"] = 35
-            grid_options["headerHeight"] = 40
-            grid_options["suppressRowClickSelection"] = False
-            grid_options["rowSelection"] = "single"
-            grid_options["domLayout"] = "normal"
-
-            grid_response = AgGrid(
-                display_df,
-                gridOptions=grid_options,
-                height=table_height,
-                width="100%",
-                allow_unsafe_jscode=True,
-                enable_enterprise_modules=False,
-                fit_columns_on_grid_load=False,
-                update_mode="SELECTION_CHANGED",
-                reload_data=False,
-                theme="streamlit",
-                key=f"aggrid_result_{st.session_state.page}",
-            )
-
-            selected_rows = grid_response.get("selected_rows", [])
-
-            if isinstance(selected_rows, pd.DataFrame):
-                selected_rows = selected_rows.to_dict("records")
-
-            if selected_rows:
-                selected_path = str(selected_rows[0].get("path_real", "") or "")
-                st.session_state.selected_path_display = selected_path
-            else:
-                st.session_state.selected_path_display = ""
-
-            if st.session_state.selected_path_display:
-                st.markdown("#### 선택한 파일 경로")
-                st.text_input(
-                    "전체 경로",
-                    key="selected_path_display",
-                    label_visibility="collapsed",
-                )
-
-            # 마지막으로 복사한 경로 표시
-            if st.session_state.selected_path_display:
-                st.markdown("#### 선택한 파일 경로")
-                st.text_input(
-                    "전체 경로",
-                    key="selected_path_display",
-                    label_visibility="collapsed",
-                )
-
-            new_page = render_pagination(
-                total=total,
-                page=int(st.session_state.page),
-                size=int(st.session_state.size),
-                window=7,
-            )
-
-            if new_page != int(st.session_state.page):
-                st.session_state.page = new_page
-                st.session_state.should_search = True
-                st.rerun()       
+       
 
     except requests.exceptions.SSLError as e:
         st.error("SSL 오류: self-signed 가능성")
@@ -854,4 +754,234 @@ if st.session_state.get("should_search", False):
         st.code(str(e))
         # 오류 트레이싱 용
         #st.code(traceback.format_exc())
+base_df = st.session_state.get("result_snapshot_df")
+working_df = st.session_state.get("working_result_df")  
 
+if isinstance(base_df, pd.DataFrame):
+    st.success(
+        f"ES 전체 {st.session_state.get('result_total', 0):,}건 중 "
+        f"상위 {len(base_df):,}건 snapshot 저장 / "
+        f"현재 작업 결과 {len(working_df) if isinstance(working_df, pd.DataFrame) else 0:,}건"
+    )
+    st.caption(f"※ 결과 내 검색은 ES 상위 {len(base_df):,}건 snapshot 기준으로 동작합니다.")
+
+    with st.container():
+        st.markdown("### 결과 내 검색")
+
+        r1, r2, r3, r4 = st.columns([4, 1, 1, 1])
+
+        with r1:
+            st.text_input(
+                "결과 내 검색어",
+                key="refine_query",
+                placeholder="파일명 / 경로 / 확장자 기준으로 현재 결과를 다시 좁힙니다."
+            )
+
+        if r2.button("원본 기준", use_container_width=True):
+            source_df = st.session_state.get("result_snapshot_df")
+            st.session_state["working_result_df"] = apply_refine_filter(
+                source_df,
+                st.session_state.get("refine_query", "")
+            )
+            st.session_state["local_page"] = 1
+            st.rerun()
+
+        if r3.button("현재 결과 축소", use_container_width=True):
+            source_df = st.session_state.get("working_result_df")
+            st.session_state["working_result_df"] = apply_refine_filter(
+                source_df,
+                st.session_state.get("refine_query", "")
+            )
+            st.session_state["local_page"] = 1
+            st.rerun()
+
+        if r4.button("복구", use_container_width=True):
+            source_df = st.session_state.get("result_snapshot_df")
+            st.session_state["working_result_df"] = source_df.copy() if source_df is not None else None
+            st.session_state["refine_query"] = ""
+            st.session_state["local_page"] = 1
+            st.rerun()
+    if working_df is None or working_df.empty:
+        st.info("검색 결과가 없습니다.")
+    else:
+        page_size = int(st.session_state.get("size", cfg.default_size))
+        local_page = int(st.session_state.get("local_page", 1))
+
+        paged_df, local_page, local_total = paginate_local_df(
+            working_df,
+            local_page,
+            page_size,
+        )
+
+        display_df = paged_df[[
+            "filename",
+            "path_real",
+            "extension",
+            "filesize",
+            "created_at",
+            "modified_at",
+        ]].copy()
+
+        display_df["copy"] = display_df["path_real"].fillna("").astype(str)
+
+        max_filename_len = (
+            display_df["filename"].fillna("").astype(str).map(len).max()
+            if not display_df.empty else 10
+        )
+        max_path_len = (
+            display_df["path_real"].fillna("").astype(str).map(len).max()
+            if not display_df.empty else 20
+        )
+
+        filename_width = int(min(max(180, max_filename_len * 9), 500))
+        path_width = int(min(max(400, max_path_len * 7), 1200))
+        table_height = min(900, 80 + len(display_df) * 35)
+
+        copy_cell_renderer = JsCode("""
+        class CopyButtonRenderer {
+            init(params) {
+                this.params = params;
+                this.eGui = document.createElement('div');
+                this.eGui.style.display = 'flex';
+                this.eGui.style.justifyContent = 'center';
+                this.eGui.style.alignItems = 'center';
+                this.eGui.style.height = '100%';
+
+                const button = document.createElement('button');
+                button.innerText = '📋';
+                button.title = params.value || '경로 없음';
+                button.style.cursor = 'pointer';
+                button.style.border = '1px solid #d1d5db';
+                button.style.background = '#ffffff';
+                button.style.borderRadius = '6px';
+                button.style.padding = '2px 6px';
+                button.style.fontSize = '14px';
+                button.style.lineHeight = '1.2';
+
+                if (!params.value) {
+                    button.disabled = true;
+                    button.style.cursor = 'not-allowed';
+                    button.style.opacity = '0.5';
+                }
+
+                button.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    if (!params.value) return;
+
+                    try {
+                        await navigator.clipboard.writeText(params.value);
+                        button.innerText = '✅';
+                        setTimeout(() => {
+                            button.innerText = '📋';
+                        }, 900);
+                    } catch (err) {
+                        console.error('clipboard copy failed', err);
+                        button.innerText = '❌';
+                        setTimeout(() => {
+                            button.innerText = '📋';
+                        }, 900);
+                    }
+                });
+
+                this.eGui.appendChild(button);
+            }
+
+            getGui() {
+                return this.eGui;
+            }
+        }
+        """)
+
+        gb = GridOptionsBuilder.from_dataframe(display_df)
+
+        gb.configure_default_column(
+            resizable=True,
+            sortable=False,
+            filter=False,
+            wrapText=False,
+            autoHeight=False,
+        )
+
+        gb.configure_column(
+            "copy",
+            header_name="경로 복사",
+            width=80,
+            pinned="left",
+            cellRenderer=copy_cell_renderer,
+            sortable=False,
+            filter=False,
+            suppressMenu=True,
+        )
+
+        gb.configure_column("filename", header_name="파일명", width=filename_width)
+        gb.configure_column("path_real", header_name="파일 경로", width=path_width)
+        gb.configure_column("extension", header_name="확장자", width=100)
+        gb.configure_column("filesize", header_name="파일 크기", width=110)
+        gb.configure_column(
+            "created_at",
+            header_name="생성일",
+            width=160,
+            valueFormatter="value ? new Date(value).toLocaleString('sv-SE').slice(0,16).replace('T',' ') : ''",
+        )
+        gb.configure_column(
+            "modified_at",
+            header_name="수정일",
+            width=160,
+            valueFormatter="value ? new Date(value).toLocaleString('sv-SE').slice(0,16).replace('T',' ') : ''",
+        )
+
+        gb.configure_selection(
+            selection_mode="single",
+            use_checkbox=False,
+        )
+
+        grid_options = gb.build()
+        grid_options["rowHeight"] = 35
+        grid_options["headerHeight"] = 40
+        grid_options["suppressRowClickSelection"] = False
+        grid_options["rowSelection"] = "single"
+        grid_options["domLayout"] = "normal"
+
+        grid_response = AgGrid(
+            display_df,
+            gridOptions=grid_options,
+            height=table_height,
+            width="100%",
+            allow_unsafe_jscode=True,
+            enable_enterprise_modules=False,
+            fit_columns_on_grid_load=False,
+            update_mode="SELECTION_CHANGED",
+            reload_data=False,
+            theme="streamlit",
+            key=f"aggrid_result_local_{local_page}",
+        )
+
+        selected_rows = grid_response.get("selected_rows", [])
+
+        if isinstance(selected_rows, pd.DataFrame):
+            selected_rows = selected_rows.to_dict("records")
+
+        if selected_rows:
+            selected_path = str(selected_rows[0].get("path_real", "") or "")
+            st.session_state["selected_path_display"] = selected_path
+        else:
+            st.session_state["selected_path_display"] = ""
+
+        if st.session_state.get("selected_path_display"):
+            st.markdown("#### 선택한 파일 경로")
+            st.text_input(
+                "전체 경로",
+                key="selected_path_display",
+                label_visibility="collapsed",
+            )
+
+        new_page = render_pagination(
+            total=local_total,
+            page=local_page,
+            size=page_size,
+            window=7,
+        )
+
+        if new_page != local_page:
+            st.session_state["local_page"] = new_page
+            st.rerun()
