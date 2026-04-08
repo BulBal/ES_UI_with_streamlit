@@ -4,24 +4,18 @@ __pycache__/
 .venv/
 venv/
 .env
-.streamlit
 
 # Streamlit
 .streamlit/secrets.toml
+.streamlit
 
 # OS / IDE
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-.streamlit/
 
 # Logs
 *.log
-<<<<<<< Updated upstream
-*.toml
-=======
-
-*.yaml
->>>>>>> Stashed changes
+Pasted code_v4.zip
 core.zip

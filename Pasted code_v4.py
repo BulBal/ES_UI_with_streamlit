@@ -1,12 +1,11 @@
 import json
 import math
 from datetime import date
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 import streamlit as st
 import streamlit.components.v1 as components
 import streamlit.components.v2 as components_v2
-from typing import Optional, Iterable
 import requests
 import pandas as pd
 import re
@@ -16,7 +15,7 @@ import traceback
 from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 
 from core.config import load_config
-from core.stt_client import transcribe
+from core.stt_client import get_server_status, transcribe
 from core.es_client import EsClient
 from dsl.base import SearchParams
 from dsl.registry import DslRegistry
@@ -455,7 +454,33 @@ voice_component = st.components.v2.component(
 
 with search_cols[1]:
     if cfg.use_remote_stt and cfg.stt_server_url:
-        if st.button("🎤", key="voice_button_remote", help="음성 입력 (STT 서버)"):
+        server_status = get_server_status(
+            server_url=cfg.stt_server_url,
+            status_path=cfg.stt_status_path,
+        )
+
+        if isinstance(server_status, dict):
+            guidance = server_status.get("guidance")
+            browser_name = server_status.get("browser_name") or "Unknown"
+            is_online = server_status.get("is_online")
+            last_error = server_status.get("error")
+            supports_speech = bool(server_status.get("supports_speech_recognition"))
+
+            st.caption(
+                f"원격 STT 상태: browser={browser_name}, online={is_online}, "
+                f"speech_api={supports_speech}"
+            )
+
+            if isinstance(guidance, str) and guidance.strip():
+                st.info(guidance.strip())
+            if isinstance(last_error, str) and last_error.strip():
+                st.warning(f"STT 서버 최근 오류: {last_error.strip()}")
+            if browser_name == "Edge" and is_online is False:
+                st.warning("폐쇄망 Edge에서는 Web Speech API 기반 STT가 실패할 수 있습니다.")
+        else:
+            st.caption("STT 서버 상태를 아직 가져오지 못했습니다.")
+
+        if st.button("Mic", key="voice_button_remote", help="STT 서버 페이지가 인식한 결과 가져오기"):
             with st.spinner("STT 서버에서 음성 인식 결과를 기다리는 중..."):
                 transcript = transcribe(
                     server_url=cfg.stt_server_url,
@@ -470,7 +495,10 @@ with search_cols[1]:
                 st.session_state["should_search"] = False
                 st.rerun()
             else:
-                st.warning("음성 인식 결과를 받지 못했습니다. STT 서버 실행 및 URL 설정을 확인하세요.")
+                st.warning(
+                    "결과를 받지 못했습니다. 이 버튼은 현재 검색 탭의 마이크를 보내지 않으며, "
+                    "STT 서버 페이지에서 직접 음성을 인식한 뒤 결과를 가져옵니다."
+                )
     else:
         result = voice_component(
             key="voice_component_instance",

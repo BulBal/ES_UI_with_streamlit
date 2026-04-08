@@ -30,6 +30,7 @@ class AppConfig:
     stt_timeout_seconds: int = 10
     stt_poll_interval_ms: int = 100
     stt_transcript_path: str = "/transcript"
+    stt_status_path: str = "/status"
     @property
     def request_verify(self) -> RequestsVerify:
         if not self.es_verify_ssl:
@@ -54,5 +55,6 @@ def load_config() -> AppConfig:
         stt_timeout_seconds=_int(os.getenv("STT_TIMEOUT_SECONDS"), default=10),
         stt_poll_interval_ms=_int(os.getenv("STT_POLL_INTERVAL_MS"), default=100),
         stt_transcript_path=os.getenv("STT_TRANSCRIPT_PATH", "/transcript"),
+        stt_status_path=os.getenv("STT_STATUS_PATH", "/status"),
 
     )
