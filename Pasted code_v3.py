@@ -374,26 +374,22 @@ if pending is not None:
     st.session_state["pending_transcript"] = None
     st.session_state["should_search"] = False
 
+# ===== 음성 입력 도움말 팝업 =====
+if "show_flags_help" not in st.session_state:
+    st.session_state["show_flags_help"] = False
 
+help_col, _, _ = st.columns([2, 8, 2])
+with help_col:
+    if st.button("🔧 Chrome Flags 설정 도움말", use_container_width=True):
+        st.session_state["show_flags_help"] = not st.session_state["show_flags_help"]
 
-# ===== 음성 입력 사전준비 안내 =====
-st.markdown("### 🎤 음성입력 준비")
+if st.session_state.get("show_flags_help", False):
+    st.info("""
+**Chrome Flags 설정 (처음 한 번만)**
 
-with st.expander("Chrome Flags 설정 방법 (처음 한 번만)", expanded=False):
-    st.markdown("""
-**1단계: Chrome Flags 페이지 접속**
-
-👉 [chrome://flags/#enable-experimental-web-platform-features](chrome://flags/#enable-experimental-web-platform-features) 클릭하여 접속
-
-**2단계: 플래그 활성화**
-- "Experimental Web Platform features" 항목을 찾습니다
-- 드롭다운을 "Enabled"로 선택합니다
-
-**3단계: 브라우저 재시작**
-- "Relaunch" 버튼을 눌러 Chrome을 다시 시작합니다
-- (재시작 후 자동으로 이 페이지로 돌아옵니다)
-
-**주의**: 이 설정은 처음 한 번만 필요합니다.
+1. [chrome://flags/#enable-experimental-web-platform-features](chrome://flags/#enable-experimental-web-platform-features) 접속
+2. "Experimental Web Platform features" → "Enabled" 선택
+3. "Relaunch" 버튼으로 Chrome 재시작
     """)
 
 # 검색창 기능 (음성 입력 기능 포함)
