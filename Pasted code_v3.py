@@ -201,27 +201,29 @@ def diagnose_voice_status(status: str, error: str, pack_status: str, install_res
             'severity': 'info' | 'warning' | 'error',
             'title': str,
             'message': str,
-            'action_needed': bool
+            'action_needed': bool,
+            'display': bool
         }
     """
-    # 상태 진단 로직
-    if status == 'idle' and not error and pack_status is None:
+    if status == 'listening':
         return {
             'severity': 'info',
-            'title': '✅ 음성입력 준비 완료',
-            'message': '마이크 버튼을 눌러 음성으로 검색어를 입력할 수 있습니다.',
-            'action_needed': False
+            'title': '🎙️ 음성인식 중',
+            'message': '말하는 내용을 인식하는 중입니다. 버튼을 다시 누르면 중지됩니다.',
+            'action_needed': False,
+            'display': True,
         }
-    
+
     if status == 'start-failed':
         return {
             'severity': 'warning',
             'title': '⚠️ Chrome Flags 설정 필요',
             'message': 'Chrome 브라우저의 "Experimental Web Platform features" 플래그를 활성화해야 음성입력을 사용할 수 있습니다.\n\n아래 링크를 클릭하여 Chrome Flags 페이지로 이동하세요:',
             'chrome_flags_url': 'chrome://flags/#enable-experimental-web-platform-features',
-            'action_needed': True
+            'action_needed': True,
+            'display': True,
         }
-    
+
     if error:
         error_messages = {
             'not-allowed': '마이크 접근 권한이 거부되었습니다. 브라우저 설정에서 음성인식 권한을 허용해주세요.',
@@ -234,30 +236,35 @@ def diagnose_voice_status(status: str, error: str, pack_status: str, install_res
             'severity': 'error',
             'title': '❌ 음성입력 오류',
             'message': error_msg,
-            'action_needed': True
+            'action_needed': True,
+            'display': True,
         }
-    
+
     if pack_status in ['downloading', 'installing']:
         return {
             'severity': 'info',
             'title': '⏳ 음성 리소스 설치 중',
             'message': '한국어 음성 팩을 처음 다운로드하는 중입니다. 잠시 기다려주세요.',
-            'action_needed': False
+            'action_needed': False,
+            'display': True,
         }
-    
+
     if install_result is False:
         return {
             'severity': 'error',
             'title': '❌ 음성 팩 설치 실패',
             'message': '음성 팩을 설치할 수 없습니다. 브라우저를 다시 시작하거나 Chrome을 최신 버전으로 업데이트해주세요.',
-            'action_needed': True
+            'action_needed': True,
+            'display': True,
         }
-    
+
+    # 정상 상태 또는 기본 대기 상태는 별도 알림 표시 없이 숨김.
     return {
         'severity': 'info',
-        'title': '🎤 음성입력',
+        'title': '🎤 음성입력 준비 완료',
         'message': '마이크 버튼을 눌러 음성으로 검색어를 입력할 수 있습니다.',
-        'action_needed': False
+        'action_needed': False,
+        'display': False,
     }
 
 def apply_ui_sort(df: pd.DataFrame, sort_col: str, ascending: bool) -> pd.DataFrame:
@@ -629,15 +636,10 @@ voice_status = diagnose_voice_status(
 )
 
 # 상태 메시지 표시
-if voice_status['severity'] == 'error':
-    st.error(f"**{voice_status['title']}**\n\n{voice_status['message']}")
-else:
-    # warning이나 info
-    msg_dict = {}
-    if 'chrome_flags_url' in voice_status:
-        msg_dict['collapse'] = False
-    
-    if voice_status['action_needed']:
+if voice_status.get('display', False):
+    if voice_status['severity'] == 'error':
+        st.error(f"**{voice_status['title']}**\n\n{voice_status['message']}")
+    elif voice_status['severity'] == 'warning':
         if 'chrome_flags_url' in voice_status:
             st.warning(
                 f"**{voice_status['title']}**\n\n"
