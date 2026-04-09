@@ -192,6 +192,74 @@ def parse_extensions(ext_str: str) -> list[str]:
     # 중복 제거 + 입력 순서 유지
     return list(dict.fromkeys(cleaned))
 
+def diagnose_voice_status(status: str, error: str, pack_status: str, install_result: any) -> dict:
+    """
+    음성입력 상태를 진단하고 사용자에게 표시할 메시지를 반환합니다.
+    
+    Returns:
+        {
+            'severity': 'info' | 'warning' | 'error',
+            'title': str,
+            'message': str,
+            'action_needed': bool
+        }
+    """
+    # 상태 진단 로직
+    if status == 'idle' and not error and pack_status is None:
+        return {
+            'severity': 'info',
+            'title': '✅ 음성입력 준비 완료',
+            'message': '마이크 버튼을 눌러 음성으로 검색어를 입력할 수 있습니다.',
+            'action_needed': False
+        }
+    
+    if status == 'start-failed':
+        return {
+            'severity': 'warning',
+            'title': '⚠️ Chrome Flags 설정 필요',
+            'message': 'Chrome 브라우저의 "Experimental Web Platform features" 플래그를 활성화해야 음성입력을 사용할 수 있습니다.\n\n아래 링크를 클릭하여 Chrome Flags 페이지로 이동하세요:',
+            'chrome_flags_url': 'chrome://flags/#enable-experimental-web-platform-features',
+            'action_needed': True
+        }
+    
+    if error:
+        error_messages = {
+            'not-allowed': '마이크 접근 권한이 거부되었습니다. 브라우저 설정에서 음성인식 권한을 허용해주세요.',
+            'no-speech': '음성이 감지되지 않았습니다. 마이크가 정상 작동하는지 확인해주세요.',
+            'network-error': '네트워크 오류가 발생했습니다. 인터넷 연결을 확인해주세요.',
+            'service-not-allowed': '음성인식 서비스가 허용되지 않았습니다.',
+        }
+        error_msg = error_messages.get(error, f'오류 발생: {error}')
+        return {
+            'severity': 'error',
+            'title': '❌ 음성입력 오류',
+            'message': error_msg,
+            'action_needed': True
+        }
+    
+    if pack_status in ['downloading', 'installing']:
+        return {
+            'severity': 'info',
+            'title': '⏳ 음성 리소스 설치 중',
+            'message': '한국어 음성 팩을 처음 다운로드하는 중입니다. 잠시 기다려주세요.',
+            'action_needed': False
+        }
+    
+    if install_result is False:
+        return {
+            'severity': 'error',
+            'title': '❌ 음성 팩 설치 실패',
+            'message': '음성 팩을 설치할 수 없습니다. 브라우저를 다시 시작하거나 Chrome을 최신 버전으로 업데이트해주세요.',
+            'action_needed': True
+        }
+    
+    return {
+        'severity': 'info',
+        'title': '🎤 음성입력',
+        'message': '마이크 버튼을 눌러 음성으로 검색어를 입력할 수 있습니다.',
+        'action_needed': False
+    }
+
 def apply_ui_sort(df: pd.DataFrame, sort_col: str, ascending: bool) -> pd.DataFrame:
     """
     UI 단 정렬: ES 정렬과 완전히 분리.
@@ -307,6 +375,26 @@ if pending is not None:
     st.session_state["should_search"] = False
 
 
+
+# ===== 음성 입력 사전준비 안내 =====
+st.markdown("### 🎤 음성입력 준비")
+
+with st.expander("Chrome Flags 설정 방법 (처음 한 번만)", expanded=False):
+    st.markdown("""
+**1단계: Chrome Flags 페이지 접속**
+
+👉 [chrome://flags/#enable-experimental-web-platform-features](chrome://flags/#enable-experimental-web-platform-features) 클릭하여 접속
+
+**2단계: 플래그 활성화**
+- "Experimental Web Platform features" 항목을 찾습니다
+- 드롭다운을 "Enabled"로 선택합니다
+
+**3단계: 브라우저 재시작**
+- "Relaunch" 버튼을 눌러 Chrome을 다시 시작합니다
+- (재시작 후 자동으로 이 페이지로 돌아옵니다)
+
+**주의**: 이 설정은 처음 한 번만 필요합니다.
+    """)
 
 # 검색창 기능 (음성 입력 기능 포함)
 # 텍스트 입력과 음성 입력 버튼을 한 줄에 배치한다.
@@ -535,6 +623,36 @@ with search_cols[1]:
         width="content",
         height="content",
     )
+
+# ===== 음성입력 상태 진단 및 안내 메시지 =====
+voice_status = diagnose_voice_status(
+    status=getattr(result, "status", "idle"),
+    error=getattr(result, "error", None),
+    pack_status=getattr(result, "pack_status", None),
+    install_result=getattr(result, "install_result", None)
+)
+
+# 상태 메시지 표시
+if voice_status['severity'] == 'error':
+    st.error(f"**{voice_status['title']}**\n\n{voice_status['message']}")
+else:
+    # warning이나 info
+    msg_dict = {}
+    if 'chrome_flags_url' in voice_status:
+        msg_dict['collapse'] = False
+    
+    if voice_status['action_needed']:
+        if 'chrome_flags_url' in voice_status:
+            st.warning(
+                f"**{voice_status['title']}**\n\n"
+                f"{voice_status['message']}\n\n"
+                f"[🔗 Chrome Flags 페이지 열기]({voice_status['chrome_flags_url']})"
+            )
+        else:
+            st.warning(f"**{voice_status['title']}**\n\n{voice_status['message']}")
+    else:
+        st.info(f"**{voice_status['title']}**\n\n{voice_status['message']}")
+
 if getattr(result, "last_transcript", None):
     transcript = result.last_transcript.strip()
     if (
