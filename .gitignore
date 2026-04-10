@@ -19,3 +19,6 @@ Thumbs.db
 *.log
 Pasted code_v4.zip
 core.zip
+
+# Local experiment workspace
+experiment/

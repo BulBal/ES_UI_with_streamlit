@@ -1,4 +1,4 @@
-# PMC Search - Streamlit Single App (ES 검색 단일앱)
+# PMC Search - Streamlit Single App (팀별 ES 분리 운영)
 
 이 프로젝트는 **Streamlit 단일 앱**으로
 - 검색 UI(프론트)
@@ -7,7 +7,7 @@
 
 ## 1) 요구사항/전제
 - Elasticsearch: 로컬 단일 노드 (Windows 가능)
-- 인덱스: `pmc_search_v1`
+- 운영 엔트리 파일: `Pasted code_v3.py`
 - 인증: 실습용 BasicAuth(예: elastic 계정)
 - ES 8.x는 기본이 https + self-signed일 수 있으므로 `ES_VERIFY_SSL` 옵션 제공
 
@@ -24,13 +24,28 @@ pip install -r requirements.txt
 > Streamlit은 기본적으로 .env를 자동 로드하지 않습니다.  
 > 실습에선 아래처럼 환경변수로 주는 게 가장 간단합니다.
 
+### 3-1) Smart 팀 전용 실행
 ```powershell
 $env:ES_BASE_URL="https://localhost:9200"
-$env:ES_INDEX="pmc_search_v1"
+$env:ES_INDEX="Smart_Solution_Team"
 $env:ES_USER="elastic"
 $env:ES_PASS="비번"
 $env:ES_VERIFY_SSL="false"   # self-signed면 false
-streamlit run app.py
+$env:ES_ALIAS_PREFIXES="Smart_"
+$env:ES_ALLOWED_INDICES=""
+streamlit run "Pasted code_v3.py"
+```
+
+### 3-2) Device 팀 전용 실행
+```powershell
+$env:ES_BASE_URL="https://10.10.10.50:9200"
+$env:ES_INDEX="Device_Team"
+$env:ES_USER="elastic"
+$env:ES_PASS="비번"
+$env:ES_VERIFY_SSL="false"
+$env:ES_ALIAS_PREFIXES="Device_"
+$env:ES_ALLOWED_INDICES=""
+streamlit run "Pasted code_v3.py"
 ```
 
 ## 4) DSL 템플릿(현재 적용)

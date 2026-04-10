@@ -6,21 +6,30 @@ from dsl.DSL_smart_solution import DSLSmartSolutionDslBuilder
 
 class DslRegistry:
     """
-    인덱스별 DSL 빌더 매핑.
-    - 팀별 인덱스가 늘어나면 여기만 추가.
-    - 또는 prefix 룰로 자동 매핑도 가능.
+    Index-to-DSL builder mapping.
     """
+
     def __init__(self):
+        meta_builder = CrawlerMetaDslBuilder()
+        fulltext_builder = CrawlerFulltextDslBuilder()
+        smart_builder = DSLSmartSolutionDslBuilder()
+
         self._map = {
-            # 기본 메타 검색용
-            "d_crawler_search": CrawlerMetaDslBuilder(),
-            "pmc_search_meta_v1": CrawlerMetaDslBuilder(),
-            "Smart_Solution_Team": DSLSmartSolutionDslBuilder(),
-            # 본문 포함 인덱스 예시
-            "pmc_search_fulltext_v1": CrawlerFulltextDslBuilder(),
+            # Meta indices
+            "d_crawler_search": meta_builder,
+            "pmc_search_meta_v1": meta_builder,
+
+            # Smart/Device team indices (shared schema)
+            "Smart_Solution_Team": smart_builder,
+            "smart_solution_docs": smart_builder,
+            "Device_Team": smart_builder,
+            "device_team_docs": smart_builder,
+
+            # Fulltext index example
+            "pmc_search_fulltext_v1": fulltext_builder,
         }
 
-        self._default = DSLSmartSolutionDslBuilder()
+        self._default = smart_builder
 
     def get(self, index: str) -> DslBuilder:
         return self._map.get(index, self._default)

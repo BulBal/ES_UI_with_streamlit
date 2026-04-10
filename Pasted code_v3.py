@@ -1,4 +1,4 @@
-import json
+﻿import json
 import math
 from datetime import date
 from typing import List, Optional
@@ -715,25 +715,29 @@ with st.sidebar:
         idx_list = fetch_accessible_indices()
         st.caption(f"총 {len(idx_list)}개")
 
-        index_options = idx_list if idx_list else [cfg.es_default_index]
+        index_options = idx_list
         # 이전 선택 복구(목록에 없으면 기본값)
-        prev_selected = st.session_state.get(IDX_KEY, cfg.es_default_index)
-        if prev_selected not in index_options:
-            prev_selected = index_options[0]
-
-        selected_index = st.selectbox(
-            "검색 인덱스",
-            options=index_options,
-            index= index_options.index(prev_selected) if prev_selected in index_options else 0,
-            key=IDX_KEY
-        )
+        if index_options:
+            prev_selected = st.session_state.get(IDX_KEY)
+            if prev_selected not in index_options:
+                prev_selected = index_options[0]
+            selected_index = st.selectbox(
+                "검색 인덱스",
+                options=index_options,
+                index= index_options.index(prev_selected),
+                key=IDX_KEY
+            )
+        else:
+            st.session_state.pop(IDX_KEY, None)
+            selected_index = None
+            st.warning("No accessible index found.")
+    
     except Exception as e:
         st.warning("인덱스 목록 조회 실패")
         st.code(str(e))
         # 인덱스 선택 UI는 기본값 하나로 fallback
-        if IDX_KEY in st.session_state:
-            st.session_state[IDX_KEY] = cfg.es_default_index
-        selected_index = st.session_state.get(IDX_KEY, cfg.es_default_index)
+        st.session_state.pop(IDX_KEY, None)
+        selected_index = None
 
     st.divider()
 
@@ -778,7 +782,11 @@ with st.sidebar:
 
 
 if st.session_state.get("should_search", False):
-    selected_index = st.session_state.get(IDX_KEY, cfg.es_default_index)
+    selected_index = st.session_state.get(IDX_KEY)
+    if not selected_index:
+        st.session_state["should_search"] = False
+        st.warning("No selectable index.")
+        st.stop()
     st.session_state["should_search"] = False
 
     builder = dsl_registry.get(selected_index)
