@@ -387,7 +387,7 @@ if "show_flags_help" not in st.session_state:
 
 help_col, _, _ = st.columns([2, 8, 2])
 with help_col:
-    if st.button("🔧 Chrome Flags 설정 도움말", use_container_width=True):
+    if st.button("🔧 음성입력 설정 도움말", use_container_width=True):
         st.session_state["show_flags_help"] = not st.session_state["show_flags_help"]
 
 if st.session_state.get("show_flags_help", False):

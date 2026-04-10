@@ -26,7 +26,7 @@ PHRASE_FIELDS = [
 class DSLSmartSolutionDslBuilder(DslBuilder):
     def build(self, params: SearchParams) -> Dict[str, Any]:
         page = max(1, params.page)
-        size = min(max(1, params.size), 50)
+        size = min(max(1, params.size), 3000)
         from_offset = (page - 1) * size
         q = (params.q or "").strip()
 
