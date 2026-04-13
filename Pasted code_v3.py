@@ -16,6 +16,7 @@ import traceback
 from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 
 from core.config import load_config
+from core.extension_catalog import EXTENSION_HELP, parse_extensions
 from core.es_client import EsClient
 from dsl.base import SearchParams
 from dsl.registry import DslRegistry
@@ -33,68 +34,6 @@ SEARCH_TARGET_OPTIONS = [
 
 label_by_target = dict(SEARCH_TARGET_OPTIONS)
 target_keys = list(label_by_target.keys())
-
-EXTENSION_HELP = """
-### 지원 확장자 목록
-
-**1. 이미지**
-- `*.jpg`
-- `*.jpeg`
-- `*.png`
-- `*.gif`
-- `*.bmp`
-- `*.tif`
-- `*.tiff`
-- `*.webp`
-- `*.svg`
-- `*.heic`
-- `*.ai`
-- `*.ico`
-- `*.psd`
-
-**2. 문서**
-- `*.pdf`
-- `*.txt`
-- `*.md`
-- `*.rtf`
-- `*.doc`
-- `*.docx`
-- `*.ppt`
-- `*.pptx`
-- `*.xls`
-- `*.xlsx`
-- `*.xlsm`
-- `*.csv`
-- `*.hwp`
-- `*.hwpx`
-
-**3. 설정 / 구성**
-- `*.conf`
-- `*.properties`
-- `*.policy`
-- `*.manifest`
-- `*.yml`
-- `*.yaml`
-- `*.json`
-- `*.xml`
-- `*.toml`
-- `*.env`
-
-**4. 압축 / 패키징**
-- `*.zip`
-- `*.7z`
-- `*.rar`
-- `*.tar`
-- `*.gz`
-- `*.tgz`
-- `*.bz2`
-- `*.xz`
-- `*.iso`
-- `*.cab`
-
-**5. 기타**
-- `*.old`
-"""
 
 # bytes 단위 표현용 함수
 def human_readable_size(num_bytes: int | float | None) -> str:
@@ -175,22 +114,6 @@ def normalize_search_params() -> tuple[str, list[str] | None]:
         return target_mode, None
 
     return target_mode, parse_extensions(raw_extension)
-
-# 확장자 입력창 파싱 함수
-def parse_extensions(ext_str: str) -> list[str]:
-    if not ext_str:
-        return []
-
-    parts = re.split(r"[,\s;/|]+", ext_str.lower())
-    cleaned = []
-
-    for p in parts:
-        p = p.strip().lstrip(".")
-        if p:
-            cleaned.append(p)
-
-    # 중복 제거 + 입력 순서 유지
-    return list(dict.fromkeys(cleaned))
 
 def diagnose_voice_status(status: str, error: str, pack_status: str, install_result: any) -> dict:
     """
@@ -901,7 +824,7 @@ if isinstance(base_df, pd.DataFrame):
                 placeholder="파일명 / 경로 / 확장자 기준으로 현재 결과를 다시 좁힙니다."
             )
 
-        if r2.button("원본 기준", use_container_width=True):
+        if r2.button("스냅샷 내 필터", use_container_width=True):
             source_df = st.session_state.get("result_snapshot_df")
             st.session_state["working_result_df"] = apply_refine_filter(
                 source_df,
@@ -910,7 +833,7 @@ if isinstance(base_df, pd.DataFrame):
             st.session_state["local_page"] = 1
             st.rerun()
 
-        if r3.button("현재 결과 축소", use_container_width=True):
+        if r3.button("현재 결과 내 필터", use_container_width=True):
             source_df = st.session_state.get("working_result_df")
             st.session_state["working_result_df"] = apply_refine_filter(
                 source_df,
